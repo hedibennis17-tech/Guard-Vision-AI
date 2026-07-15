@@ -41,3 +41,13 @@ Thumbs.db
 # Misc
 coverage/
 *.tsbuildinfo
+
+# AI Engine
+ai-engine/models/*.pt
+ai-engine/models/*.onnx
+ai-engine/firebase-service-account.json
+ai-engine/.env
+/tmp/visionguard/
+
+# Docker
+.env

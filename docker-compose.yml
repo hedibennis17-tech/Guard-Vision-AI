@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  ai-engine:
+    build: ./ai-engine
+    container_name: visionguard-ai-engine
+    restart: unless-stopped
+    ports:
+      - "8000:8000"     # API FastAPI (Dashboard + Cloud Functions)
+      - "8765:8765"     # WebSocket StreamRouter (Live Monitor)
+    volumes:
+      - ./ai-engine/models:/app/models          # modèles YOLO persistants
+      - ./ai-engine/firebase-service-account.json:/app/firebase-service-account.json:ro
+      - /tmp/visionguard/streams:/tmp/visionguard/streams  # segments HLS
+    environment:
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+      - FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET}
+      - YOLO_MODEL=${YOLO_MODEL:-yolo11m.pt}
+      - YOLO_DEVICE=${YOLO_DEVICE:-cpu}
+      - YOLO_CONF=${YOLO_CONF:-0.45}
+      - FRAME_SKIP=${FRAME_SKIP:-3}
+      - MAX_STREAMS=${MAX_STREAMS:-16}
+      - VISIONGUARD_CALLBACK_URL=${VISIONGUARD_CALLBACK_URL}
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Serveur HTTP statique pour servir les segments HLS au Dashboard/App
+  hls-server:
+    image: nginx:alpine
+    container_name: visionguard-hls-server
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - /tmp/visionguard/streams:/usr/share/nginx/html/streams:ro
+    depends_on:
+      - ai-engine

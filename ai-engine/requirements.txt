@@ -1,0 +1,26 @@
+# Vision Guard AI Engine — Python dependencies
+# YOLOv11 + OpenCV + Firebase + FastAPI
+
+# IA / Vision
+ultralytics==8.3.40          # YOLOv11 officiel (Ultralytics)
+opencv-python-headless==4.10.0.84
+torch==2.4.1
+torchvision==0.19.1
+numpy==1.26.4
+Pillow==10.4.0
+
+# Firebase Admin (Firestore + Storage)
+firebase-admin==6.5.0
+
+# API HTTP (endpoints REST pour le Dashboard / Cloud Functions)
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.8.2
+
+# Streaming RTSP
+imageio[ffmpeg]==2.35.1
+
+# Utils
+python-dotenv==1.0.1
+loguru==0.7.2
+httpx==0.27.2
