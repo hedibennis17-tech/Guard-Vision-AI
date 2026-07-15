@@ -1,0 +1,120 @@
+rules_version = '2';
+
+// Vision Guard AI — Firestore Security Rules
+// Hiérarchie : organizations/{orgId} → sites, cameras, events, detections, notifications, reports, modules, members
+//
+// Principe : un utilisateur ne peut lire/écrire que les données des organisations
+// dont il est membre (via organizations/{orgId}/members/{uid}), et seulement les
+// actions permises par son rôle (voir packages/shared/src/types/roles.ts pour la
+// matrice de permissions équivalente côté application).
+//
+// NOTE: ces règles sont un point de départ (Phase 1). Elles seront affinées quand
+// le Camera Connector Engine (Phase 3) et le Billing (Stripe webhooks) seront branchés.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function membership(orgId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid));
+    }
+
+    function isMember(orgId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)) &&
+        membership(orgId).data.status == 'active';
+    }
+
+    function role(orgId) {
+      return membership(orgId).data.role;
+    }
+
+    function isOwnerOrAdmin(orgId) {
+      return isMember(orgId) && role(orgId) in ['owner', 'admin'];
+    }
+
+    // --- users/{uid} : chaque utilisateur ne gère que son propre profil ---
+    match /users/{uid} {
+      allow read, update: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    // --- organizations/{orgId} ---
+    match /organizations/{orgId} {
+      allow read: if isMember(orgId);
+      allow create: if isSignedIn(); // création initiale gérée + validée par Cloud Function onCreate
+      allow update: if isOwnerOrAdmin(orgId);
+      allow delete: if isMember(orgId) && role(orgId) == 'owner';
+
+      // --- members (rôles) ---
+      match /members/{memberId} {
+        allow read: if isMember(orgId);
+        allow write: if isOwnerOrAdmin(orgId);
+      }
+
+      // --- sites ---
+      match /sites/{siteId} {
+        allow read: if isMember(orgId);
+        allow write: if isMember(orgId) && role(orgId) in ['owner', 'admin', 'manager'];
+      }
+
+      // --- cameras (métadonnées uniquement — jamais les credentials) ---
+      match /cameras/{cameraId} {
+        allow read: if isMember(orgId);
+        allow write: if isMember(orgId) && role(orgId) in ['owner', 'admin', 'manager'];
+      }
+
+      // --- camera_credentials : jamais accessible côté client, Cloud Functions uniquement ---
+      match /camera_credentials/{cameraId} {
+        allow read, write: if false;
+      }
+
+      // --- detections / events : lecture large, écriture réservée aux Cloud Functions (Admin SDK bypass ces règles) ---
+      match /detections/{detectionId} {
+        allow read: if isMember(orgId);
+        allow write: if false;
+      }
+
+      match /events/{eventId} {
+        allow read: if isMember(orgId);
+        allow update: if isMember(orgId) && role(orgId) in ['owner', 'admin', 'manager']; // ex: acquitter
+        allow create, delete: if false;
+      }
+
+      // --- notifications : chaque utilisateur ne voit que les siennes ---
+      match /notifications/{notificationId} {
+        allow read, update: if isMember(orgId) && resource.data.userId == request.auth.uid;
+        allow create, delete: if false;
+      }
+
+      // --- reports ---
+      match /reports/{reportId} {
+        allow read: if isMember(orgId);
+        allow create: if isMember(orgId) && role(orgId) in ['owner', 'admin', 'manager'];
+        allow delete: if isOwnerOrAdmin(orgId);
+      }
+
+      // --- modules (marketplace activés pour cette org) ---
+      match /modules/{slug} {
+        allow read: if isMember(orgId);
+        allow write: if isOwnerOrAdmin(orgId);
+      }
+    }
+
+    // --- subscriptions/{subscriptionId} : lecture par les membres de l'org liée, écriture Cloud Functions/Stripe webhook only ---
+    match /subscriptions/{subscriptionId} {
+      allow read: if isSignedIn() && isMember(resource.data.organizationId);
+      allow write: if false;
+    }
+
+    // --- marketplace_modules/{slug} : catalogue global, lecture publique (authentifiée), écriture interdite côté client ---
+    match /marketplace_modules/{slug} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+  }
+}

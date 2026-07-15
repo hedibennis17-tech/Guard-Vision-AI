@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// Vision Guard AI — Storage Security Rules
+// Structure : /organizations/{orgId}/snapshots|videos|reports|thumbnails/...
+// Un utilisateur ne peut accéder qu'aux fichiers de ses organisations.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(orgId) {
+      return isSignedIn() &&
+        firestore.exists(/databases/(default)/documents/organizations/$(orgId)/members/$(request.auth.uid));
+    }
+
+    match /organizations/{orgId}/{allPaths=**} {
+      allow read: if isMember(orgId);
+      // Écriture réservée aux Cloud Functions (Admin SDK) pour snapshots/vidéos IA et rapports.
+      // Exception : avatars utilisateurs, gérés côté client.
+      allow write: if false;
+    }
+
+    match /users/{uid}/avatars/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+  }
+}
