@@ -1,0 +1,19 @@
+{
+  "name": "visionguard-ai-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:dashboard": "npm run dev --workspace=apps/dashboard",
+    "dev:user": "npm run dev --workspace=apps/user-app",
+    "build:dashboard": "npm run build --workspace=apps/dashboard",
+    "build:user": "npm run build --workspace=apps/user-app",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}
