@@ -17,6 +17,7 @@ export default function PhoneCameraPage() {
   const orgIdRef  = useRef<string | null>(null);
   const camIdRef  = useRef<string | null>(null);
 
+  const [facing, setFacing] = useState<"user"|"environment">("environment");
   const [ready,       setReady]       = useState(false);
   const [detMode,     setDetMode]     = useState<DetectionMode>("off");
   const [streamError, setStreamError] = useState<string | null>(null);
@@ -101,7 +102,7 @@ export default function PhoneCameraPage() {
     try {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode:"environment", width:{ideal:1280}, height:{ideal:720} },
+        video: { facingMode:facing, width:{ideal:1280}, height:{ideal:720} },
         audio: false,
       });
       streamRef.current = stream;
@@ -170,21 +171,23 @@ export default function PhoneCameraPage() {
               )}
             </div>
 
-            {/* Contrôles */}
+            {/* Contrôles caméra + IA */}
             <div className="flex gap-2 flex-wrap">
-              <button onClick={startCamera}
-                className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-slate-500">
-                📷 Démarrer la caméra
+              <button
+                onClick={() => { setFacing("environment"); startCamera(); }}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${facing === "environment" ? "border-brand bg-brand/10 text-brand" : "border-slate-700 text-slate-300 hover:border-slate-500"}`}>
+                📷 Caméra arrière
+              </button>
+              <button
+                onClick={() => { setFacing("user"); startCamera(); }}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${facing === "user" ? "border-brand bg-brand/10 text-brand" : "border-slate-700 text-slate-300 hover:border-slate-500"}`}>
+                🤳 Caméra avant
               </button>
               <button
                 onClick={() => setDetMode(detMode === "off" ? "browser" : "off")}
                 disabled={!ready}
-                className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-40 ${
-                  detMode !== "off"
-                    ? "border-brand bg-brand/10 text-brand"
-                    : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"
-                }`}>
-                🤖 {detMode !== "off" ? "IA active — cliquer pour arrêter" : "Activer l'IA"}
+                className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-40 ${detMode !== "off" ? "border-brand bg-brand/10 text-brand" : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"}`}>
+                🤖 {detMode !== "off" ? "IA active" : "Activer l'IA"}
               </button>
             </div>
 
