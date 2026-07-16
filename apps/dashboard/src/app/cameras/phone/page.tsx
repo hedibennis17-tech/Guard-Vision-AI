@@ -89,16 +89,11 @@ export default function PhoneCameraPage() {
           setTotalSaved((n) => n + 1);
           setPipeLog(`✅ ${det.label} → Firestore · snapshot${result.snapshotUrl ? " ✓" : " (Storage requis)"}`);
 
-          // Lancer un clip vidéo de 6s si c'est une détection importante
+          // Lancer un clip vidéo de 12s si c'est une détection importante
           if (result.eventId && streamRef.current &&
               (det.severity === "critical" || det.severity === "warning") &&
               !isRecording) {
-            const clip = await startClip({
-              organizationId: orgId,
-              cameraId: camId,
-              eventId: result.eventId,
-              durationSec: 6
-            });
+            const clip = await startClip({ organizationId: orgId, cameraId: camId, eventId: result.eventId, durationSec: 12 });
             if (clip?.videoClipUrl && result.eventId) {
               await updateEventWithClip(orgId, result.eventId, clip.videoClipUrl);
               setPipeLog(`✅ Clip vidéo ${clip.durationSeconds}s (${clip.sizeKb}kb) → Firebase`);
