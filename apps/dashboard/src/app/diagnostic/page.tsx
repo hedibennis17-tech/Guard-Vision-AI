@@ -180,27 +180,38 @@ export default function DiagnosticPage() {
       setRunning(false); setDone(true); return;
     }
 
-    // ── 6. Storage upload ────────────────────────────────────────────
-    update("storage_w", { status:"running" });
+    // ── 6. Storage upload (timeout 8s — non bloquant) ────────────────
+    update("storage_w", { status:"running", detail:"Upload en cours (max 8s)..." });
     const t3 = Date.now();
     try {
       const testBlob = new Blob(["VisionGuard diagnostic test"], { type:"text/plain" });
       const testRef  = ref(storage, `_diagnostic/${diagId}.txt`);
-      await uploadBytes(testRef, testBlob);
-      await getDownloadURL(testRef);
+
+      // Timeout manuel de 8 secondes
+      const uploadWithTimeout = Promise.race([
+        uploadBytes(testRef, testBlob),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout 8s — vérifiez les Storage Rules")), 8000)
+        ),
+      ]);
+
+      await uploadWithTimeout;
+      const url = await getDownloadURL(testRef);
       await deleteObject(testRef).catch(() => {});
-      update("storage_w", { status:"ok", detail:"Upload + Download OK.", ms: Date.now()-t3 });
+      update("storage_w", { status:"ok", detail:`Upload OK · ${url.slice(0,50)}...`, ms: Date.now()-t3 });
     } catch (e: any) {
-      const isPermission = e.code === "storage/unauthorized";
-      update("storage_w", { status:"error", detail:e.message, ms: Date.now()-t3,
-        fix: isPermission
-          ? "Storage Console → Rules → allow read, write: if request.auth != null;"
-          : "Activez Firebase Storage dans la Console.",
-        fixUrl: isPermission
-          ? "https://console.firebase.google.com/project/ai-guard-vision-8ef41/storage/rules"
-          : "https://console.firebase.google.com/project/ai-guard-vision-8ef41/storage",
+      const isPermission = e.code === "storage/unauthorized" || e.message?.includes("permission");
+      const isTimeout    = e.message?.includes("Timeout");
+      update("storage_w", {
+        status: "error",
+        detail: e.message,
+        ms:     Date.now()-t3,
+        fix: isPermission || isTimeout
+          ? "Storage → Rules → allow read, write: if request.auth != null;"
+          : "Activez Firebase Storage dans la Console Firebase.",
+        fixUrl: "https://console.firebase.google.com/project/ai-guard-vision-8ef41/storage/rules",
       });
-      // Storage error n'est pas bloquant — on continue
+      // NON BLOQUANT — on continue les tests suivants
     }
 
     // ── 7. Enregistrement caméra ─────────────────────────────────────
