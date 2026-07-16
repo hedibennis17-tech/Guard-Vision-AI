@@ -156,3 +156,63 @@ function computeSeverity(cls:string, count:number): "info"|"warning"|"critical" 
   if (["person","motorcycle","truck","knife","shoplifting"].includes(cls)) return "warning";
   return "info";
 }
+
+/**
+ * Met à jour un EventDoc avec l'URL du clip vidéo.
+ * Appelé par useMediaRecorder après upload dans Storage.
+ */
+export async function updateEventWithClip(
+  organizationId: string,
+  eventId:        string,
+  videoClipUrl:   string,
+): Promise<void> {
+  const { doc, updateDoc } = await import("firebase/firestore");
+  const { db } = await import("@/lib/firebase/client");
+  await updateDoc(
+    doc(db, "organizations", organizationId, "events", eventId),
+    { videoClipUrl, updatedAt: new Date().toISOString() }
+  );
+}
+
+/**
+ * Déclenche l'enregistrement d'un clip vidéo pour un event existant.
+ * Appelé depuis la page caméra après qu'une détection a créé l'event.
+ */
+export async function startEventClip(options: {
+  organizationId: string;
+  cameraId:       string;
+  eventId:        string;
+  videoElement:   HTMLVideoElement;
+  durationSec?:   number;
+}): Promise<string | null> {
+  const { organizationId, cameraId, eventId, videoElement, durationSec = 15 } = options;
+  const stream = videoElement.srcObject as MediaStream | null;
+  if (!stream) return null;
+
+  const mimeType = ["video/webm;codecs=vp9,opus","video/webm","video/mp4"]
+    .find((m) => MediaRecorder.isTypeSupported(m)) ?? "video/webm";
+  const chunks: Blob[] = [];
+
+  return new Promise((resolve) => {
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1_200_000 });
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = async () => {
+      const blob = new Blob(chunks, { type: mimeType });
+      const ext  = mimeType.includes("mp4") ? "mp4" : "webm";
+      const path = `organizations/${organizationId}/clips/${cameraId}/${eventId}.${ext}`;
+      try {
+        const { ref, uploadBytes, getDownloadURL } = await import("firebase/storage");
+        const { storage } = await import("@/lib/firebase/client");
+        const sRef = ref(storage, path);
+        await uploadBytes(sRef, blob, { contentType: mimeType });
+        const url = await getDownloadURL(sRef);
+        const { doc, updateDoc } = await import("firebase/firestore");
+        await updateDoc(doc(db, "organizations", organizationId, "events", eventId),
+          { videoClipUrl: url, updatedAt: new Date().toISOString() });
+        resolve(url);
+      } catch { resolve(null); }
+    };
+    recorder.start(500);
+    setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, durationSec * 1000);
+  });
+}

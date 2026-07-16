@@ -4,12 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { DetectionOverlay } from "@/components/DetectionOverlay";
 import { useYoloDetection, type Detection, type DetectionMode } from "@/lib/hooks/useYoloDetection";
-import { runDetectionPipeline } from "@/lib/services/pipelineService";
+import { useMediaRecorder } from "@/lib/hooks/useMediaRecorder";
+import { runDetectionPipeline, updateEventWithClip } from "@/lib/services/pipelineService";
 import { quickSetup, createCameraDirectly, checkSetup } from "@/lib/services/setupService";
 import { CATEGORY_LABELS } from "@/lib/detection/classMap";
 import { auth } from "@/lib/firebase/client";
 
-interface SavedItem { label: string; time: string; color: string; eventId: string | null; }
+interface SavedItem {
+  label: string; time: string; color: string;
+  eventId: string | null; snapshotUrl?: string;
+}
 
 export default function PhoneCameraPage() {
   const videoRef  = useRef<HTMLVideoElement>(null);
@@ -17,102 +21,106 @@ export default function PhoneCameraPage() {
   const orgIdRef  = useRef<string | null>(null);
   const camIdRef  = useRef<string | null>(null);
 
-  const [facing, setFacing] = useState<"user"|"environment">("environment");
+  const [facing,      setFacing]      = useState<"user"|"environment">("environment");
   const [ready,       setReady]       = useState(false);
   const [detMode,     setDetMode]     = useState<DetectionMode>("off");
   const [streamError, setStreamError] = useState<string | null>(null);
   const [saved,       setSaved]       = useState<SavedItem[]>([]);
-  const [pipeLog,     setPipeLog]     = useState<string>("En attente...");
+  const [pipeLog,     setPipeLog]     = useState("En attente...");
   const [totalSaved,  setTotalSaved]  = useState(0);
 
-  // Auto-init — attendre que Firebase Auth soit prêt avant de setup
+  const { startClip, stopClip, isRecording } = useMediaRecorder();
+
+  // Auto-init
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged(async (user) => {
-      unsubAuth(); // écouter une seule fois
-      if (!user) {
-        setPipeLog("❌ Non connecté — allez sur /login");
-        return;
-      }
-      (async () => {
+    (async () => {
       try {
         const status = await checkSetup();
         let orgId = status.organizationId;
-
         if (!orgId) {
           setPipeLog("Création de l'organisation...");
-          const result = await quickSetup("Ma maison");
-          orgId = result.organizationId;
+          const r = await quickSetup("Ma maison");
+          orgId = r.organizationId;
         }
-
         orgIdRef.current = orgId;
-
-        // Créer la caméra automatiquement
         setPipeLog("Création de la caméra...");
         const camId = await createCameraDirectly({
           organizationId: orgId,
-          name:           "Caméra téléphone",
-          brand:          "WebRTC",
-          connector:      "phone_webcam",
-          timezone:       Intl.DateTimeFormat().resolvedOptions().timeZone,
+          name:    "Caméra téléphone",
+          brand:   "WebRTC",
+          connector: "phone_webcam",
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
         camIdRef.current = camId;
-        setPipeLog(`✅ Prêt · Org: ${orgId.slice(0,8)}... · Cam: ${camId.slice(0,8)}...`);
+        setPipeLog(`✅ Prêt — org: ${orgId.slice(0,8)}... cam: ${camId.slice(0,8)}...`);
         setReady(true);
       } catch (err: any) {
-        setPipeLog(`❌ Erreur: ${err.message}`);
+        setPipeLog(`❌ ${err.message}`);
       }
     })();
-    });
-    return () => {
-      unsubAuth();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
+    return () => { streamRef.current?.getTracks().forEach((t) => t.stop()); };
   }, []);
 
-  // Callback détection → pipeline Firestore
+  // Pipeline de détection
   const handleDetection = useCallback(async (dets: Detection[]) => {
-    if (!orgIdRef.current || !camIdRef.current || !videoRef.current) return;
+    const orgId = orgIdRef.current;
+    const camId = camIdRef.current;
+    if (!orgId || !camId || !videoRef.current) return;
+
+    const now = new Date().toLocaleTimeString("fr-CA");
 
     for (const det of dets) {
       try {
         const result = await runDetectionPipeline({
-          organizationId: orgIdRef.current,
-          cameraId:       camIdRef.current,
+          organizationId: orgId,
+          cameraId:       camId,
           detection:      det,
           videoElement:   videoRef.current,
         });
 
         if (result) {
-          const time = new Date().toLocaleTimeString("fr-CA");
           setSaved((prev) => [{
-            label:   det.label,
-            time,
-            color:   det.color,
-            eventId: result.eventId,
-          }, ...prev].slice(0, 25));
+            label:       det.label,
+            time:        now,
+            color:       det.color,
+            eventId:     result.eventId,
+            snapshotUrl: result.snapshotUrl ?? undefined,
+          }, ...prev].slice(0, 30));
           setTotalSaved((n) => n + 1);
-          setPipeLog(`✅ ${det.label} → Firestore (${time})`);
+          setPipeLog(`✅ ${det.label} → Firestore · snapshot${result.snapshotUrl ? " ✓" : " (Storage requis)"}`);
+
+          // Lancer un clip vidéo de 6s si c'est une détection importante
+          if (result.eventId && streamRef.current &&
+              (det.severity === "critical" || det.severity === "warning") &&
+              !isRecording) {
+            const clip = await startClip(streamRef.current, orgId, camId, result.eventId, 6);
+            if (clip?.url && result.eventId) {
+              await updateEventWithClip(orgId, result.eventId, clip.url);
+              setPipeLog(`✅ Clip vidéo ${clip.durationS}s (${clip.sizeKb}kb) → Firebase`);
+            }
+          }
         }
       } catch (err: any) {
         setPipeLog(`⚠️ ${err.message}`);
       }
     }
-  }, []);
+  }, [isRecording, startClip]);
 
   const { detections, isLoading, modelReady, fps }
     = useYoloDetection(videoRef, {
         mode:        detMode,
         fps:         8,
-        confidence:  0.30,
+        confidence:  0.55,
+        voteFrames:  2,
         onDetection: handleDetection,
       });
 
-  async function startCamera() {
+  async function startCamera(face: "user"|"environment" = facing) {
     setStreamError(null);
     try {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode:facing, width:{ideal:1280}, height:{ideal:720} },
+        video: { facingMode:face, width:{ideal:1280}, height:{ideal:720} },
         audio: false,
       });
       streamRef.current = stream;
@@ -121,7 +129,7 @@ export default function PhoneCameraPage() {
         await videoRef.current.play();
       }
     } catch (e: any) {
-      setStreamError("Accès caméra refusé.");
+      setStreamError("Accès caméra refusé — vérifiez les permissions.");
     }
   }
 
@@ -136,20 +144,16 @@ export default function PhoneCameraPage() {
         <Link href="/cameras" className="text-slate-400 hover:text-white">← Caméras</Link>
         <div className="flex items-center gap-2 text-sm font-medium">
           Vision Guard · Webcam
-          {detMode !== "off" && modelReady && (
-            <span className="rounded-full bg-brand/20 border border-brand/30 px-2 py-0.5 text-xs text-brand">
-              🤖 {fps}fps
-            </span>
-          )}
+          {isRecording && <span className="rounded-full bg-red-500/20 border border-red-700 px-2 py-0.5 text-xs text-red-400 flex items-center gap-1"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />REC</span>}
+          {detMode !== "off" && modelReady && <span className="rounded-full bg-brand/20 border border-brand/30 px-2 py-0.5 text-xs text-brand">🤖 {fps}fps</span>}
         </div>
         <span className={`text-xs ${ready ? "text-emerald-400" : "text-amber-400"}`}>
-          {ready ? "✅ Firebase prêt" : "⏳ Init..."}
+          {ready ? "✅ Firebase" : "⏳ Init..."}
         </span>
       </div>
 
       <div className="mx-auto max-w-5xl px-4 py-4">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-
           {/* Flux vidéo */}
           <div className="lg:col-span-2 space-y-3">
             <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
@@ -163,40 +167,34 @@ export default function PhoneCameraPage() {
 
               {detMode !== "off" && (
                 <div className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-2 py-1 text-xs">
-                  {isLoading
-                    ? <span className="flex items-center gap-1 text-brand"><span className="h-3 w-3 animate-spin rounded-full border border-brand border-t-transparent" /> Chargement IA...</span>
-                    : modelReady
-                    ? <span className="text-emerald-400">🤖 {fps}fps · {detections.length} obj</span>
-                    : <span className="text-slate-500">En attente...</span>}
+                  {isLoading ? <span className="text-brand flex gap-1"><span className="h-3 w-3 animate-spin rounded-full border border-brand border-t-transparent" /> Chargement IA...</span>
+                   : modelReady ? <span className="text-emerald-400">🤖 {fps}fps · {detections.length} obj</span>
+                   : <span className="text-slate-500">En attente...</span>}
                 </div>
               )}
 
               {streamError && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/70">
                   <div className="text-center">
-                    <p className="text-red-400 mb-3 text-sm">{streamError}</p>
-                    <button onClick={startCamera} className="rounded-lg bg-brand px-4 py-2 text-sm">Réessayer</button>
+                    <p className="text-red-400 text-sm mb-3">{streamError}</p>
+                    <button onClick={() => startCamera()} className="rounded-lg bg-brand px-4 py-2 text-sm">Réessayer</button>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Contrôles caméra + IA */}
+            {/* Contrôles */}
             <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={() => { setFacing("environment"); startCamera(); }}
-                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${facing === "environment" ? "border-brand bg-brand/10 text-brand" : "border-slate-700 text-slate-300 hover:border-slate-500"}`}>
+              <button onClick={() => { setFacing("environment"); startCamera("environment"); }}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${facing==="environment" ? "border-brand bg-brand/10 text-brand" : "border-slate-700 text-slate-300 hover:border-slate-500"}`}>
                 📷 Caméra arrière
               </button>
-              <button
-                onClick={() => { setFacing("user"); startCamera(); }}
-                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${facing === "user" ? "border-brand bg-brand/10 text-brand" : "border-slate-700 text-slate-300 hover:border-slate-500"}`}>
+              <button onClick={() => { setFacing("user"); startCamera("user"); }}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${facing==="user" ? "border-brand bg-brand/10 text-brand" : "border-slate-700 text-slate-300 hover:border-slate-500"}`}>
                 🤳 Caméra avant
               </button>
-              <button
-                onClick={() => setDetMode(detMode === "off" ? "browser" : "off")}
-                disabled={!ready}
-                className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-40 ${detMode !== "off" ? "border-brand bg-brand/10 text-brand" : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"}`}>
+              <button onClick={() => setDetMode(detMode==="off" ? "browser" : "off")} disabled={!ready}
+                className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-40 ${detMode!=="off" ? "border-brand bg-brand/10 text-brand" : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"}`}>
                 🤖 {detMode !== "off" ? "IA active" : "Activer l'IA"}
               </button>
             </div>
@@ -206,8 +204,7 @@ export default function PhoneCameraPage() {
               pipeLog.startsWith("✅") ? "border-emerald-800 bg-emerald-900/10 text-emerald-400"
               : pipeLog.startsWith("❌") ? "border-red-800 bg-red-900/10 text-red-400"
               : pipeLog.startsWith("⚠️") ? "border-amber-800 bg-amber-900/10 text-amber-400"
-              : "border-slate-800 bg-slate-900 text-slate-400"
-            }`}>
+              : "border-slate-800 bg-slate-900 text-slate-400"}`}>
               {pipeLog}
             </div>
           </div>
@@ -218,7 +215,7 @@ export default function PhoneCameraPage() {
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-3 text-center">
                 <p className="text-2xl font-bold text-white">{totalSaved}</p>
-                <p className="text-xs text-slate-500">Enregistrés</p>
+                <p className="text-xs text-slate-500">Détections</p>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-3 text-center">
                 <p className="text-2xl font-bold text-brand">{detections.length}</p>
@@ -226,20 +223,18 @@ export default function PhoneCameraPage() {
               </div>
             </div>
 
-            {/* Catégories live */}
+            {/* Segmentations live */}
             {Object.keys(byCategory).length > 0 && (
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-                <h3 className="mb-3 text-xs font-semibold text-slate-400">DÉTECTÉ MAINTENANT</h3>
+                <h3 className="mb-3 text-xs font-semibold text-slate-400">SEGMENTATIONS</h3>
                 <div className="space-y-1.5">
                   {Object.entries(byCategory).map(([cat, count]) => {
-                    const c = CATEGORY_LABELS[cat as keyof typeof CATEGORY_LABELS]
-                      ?? { label:cat, icon:"📦", color:"#64748B" };
+                    const c = CATEGORY_LABELS[cat as keyof typeof CATEGORY_LABELS] ?? { label:cat, icon:"📦", color:"#64748B" };
                     return (
-                      <div key={cat} className="flex items-center gap-2 rounded-lg px-2 py-1.5"
-                        style={{ background: c.color + "18" }}>
+                      <div key={cat} className="flex items-center gap-2 rounded-lg px-2 py-1.5" style={{ background:c.color+"18" }}>
                         <span>{c.icon}</span>
                         <span className="flex-1 text-xs text-white">{c.label}</span>
-                        <span className="text-xs font-bold" style={{ color: c.color }}>×{count}</span>
+                        <span className="text-xs font-bold" style={{ color:c.color }}>×{count}</span>
                       </div>
                     );
                   })}
@@ -247,51 +242,42 @@ export default function PhoneCameraPage() {
               </div>
             )}
 
-            {/* Historique sauvegardés */}
+            {/* Historique */}
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-slate-400">SAUVEGARDÉS FIREBASE</h3>
-                <span className="text-xs text-emerald-400">{totalSaved} total</span>
+              <h3 className="mb-3 text-xs font-semibold text-slate-400">
+                SAUVEGARDÉS ({totalSaved})
+              </h3>
+              <div className="max-h-48 overflow-y-auto space-y-1">
+                {saved.length === 0 ? (
+                  <p className="text-xs text-slate-600 text-center py-3">
+                    {detMode === "off" ? "Active l'IA pour commencer" : "En attente..."}
+                  </p>
+                ) : saved.map((s, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded px-2 py-1.5">
+                    {s.snapshotUrl
+                      ? <img src={s.snapshotUrl} alt="" className="h-6 w-8 shrink-0 rounded object-cover" />
+                      : <div className="h-2 w-2 shrink-0 rounded-full" style={{ background:s.color }} />}
+                    <span className="flex-1 text-xs text-white truncate">{s.label}</span>
+                    <span className="text-xs text-slate-600 shrink-0">{s.time}</span>
+                    <span className="text-xs text-emerald-500 shrink-0">✅</span>
+                  </div>
+                ))}
               </div>
-              {saved.length === 0 ? (
-                <p className="text-xs text-slate-600 text-center py-4">
-                  {detMode === "off" ? "Active l'IA pour commencer" : "Détection en cours..."}
-                </p>
-              ) : (
-                <div className="max-h-48 overflow-y-auto space-y-1">
-                  {saved.map((s, i) => (
-                    <div key={i} className="flex items-center gap-2 rounded px-2 py-1.5">
-                      <div className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
-                      <span className="flex-1 text-xs text-white">{s.label}</span>
-                      <span className="text-xs text-slate-600">{s.time}</span>
-                      <span className="text-xs text-emerald-500">✅</span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
 
-            {/* Liens vers les données */}
+            {/* Liens */}
             {totalSaved > 0 && (
-              <div className="rounded-xl border border-emerald-800/40 bg-emerald-900/10 p-4">
-                <p className="mb-3 text-xs font-semibold text-emerald-400">
-                  ✅ {totalSaved} détection(s) dans Firebase
-                </p>
-                <div className="flex flex-col gap-2">
-                  <Link href="/events"
-                    className="flex items-center justify-between rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:text-white">
-                    🚨 Voir les Events <span>→</span>
+              <div className="space-y-1.5">
+                {[
+                  { href:"/events",       label:"🚨 Voir les Events" },
+                  { href:"/ai-detection", label:"🤖 AI Détections" },
+                  { href:"/notifications",label:"🔔 Notifications" },
+                ].map((l) => (
+                  <Link key={l.href} href={l.href}
+                    className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:border-brand hover:text-brand">
+                    {l.label} <span>→</span>
                   </Link>
-                  <Link href="/notifications"
-                    className="flex items-center justify-between rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:text-white">
-                    🔔 Voir les Notifications <span>→</span>
-                  </Link>
-                  <a href="https://console.firebase.google.com/project/ai-guard-vision-8ef41/firestore/data"
-                    target="_blank"
-                    className="flex items-center justify-between rounded-lg bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:text-white">
-                    🔥 Firestore Console ↗
-                  </a>
-                </div>
+                ))}
               </div>
             )}
           </div>
