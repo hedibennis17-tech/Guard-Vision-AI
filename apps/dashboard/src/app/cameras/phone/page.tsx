@@ -29,7 +29,7 @@ export default function PhoneCameraPage() {
   const [pipeLog,     setPipeLog]     = useState("En attente...");
   const [totalSaved,  setTotalSaved]  = useState(0);
 
-  const { startClip, stopClip, isRecording } = useMediaRecorder();
+  const { startClip, stopClip, recording: isRecording } = useMediaRecorder(videoRef);
 
   // Auto-init
   useEffect(() => {
