@@ -1,21 +1,24 @@
 import * as admin from "firebase-admin";
 admin.initializeApp();
 
-// Triggers Firestore
+// ── Triggers Firestore
 export { onOrganizationCreated } from "./triggers/onOrganizationCreated";
 export { onDetectionCreated }    from "./triggers/onDetectionCreated";
-export { onNotificationCreated } from "./notifications/onNotificationCreated";
 
-// Cameras
+// ── Notifications
+export { onNotificationCreated }                           from "./notifications/onNotificationCreated";
+export { registerFcmToken, updateNotificationPrefs, markNotificationRead } from "./notifications/notificationPrefs";
+
+// ── Cameras
 export { addCamera }                      from "./http/addCamera";
 export { connectCamera, discoverCameras } from "./http/connectCamera";
 
-// Streaming
+// ── Streaming
 export { startStream, stopStream } from "./http/startStream";
 
-// Events
+// ── Events
 export { acknowledgeEvent } from "./http/acknowledgeEvent";
 
-// Notifications
-export { registerFcmToken, updateNotificationPrefs, markNotificationRead }
-  from "./notifications/notificationPrefs";
+// ── Reports (Phase 8)
+export { generateReport, scheduleDailyReports, scheduleWeeklyReports, scheduleMonthlyReports }
+  from "./reports/generateReport";

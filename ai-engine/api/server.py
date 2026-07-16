@@ -134,3 +134,43 @@ async def analyze_frame(req: AnalyzeFrameRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api.server:app", host=API_HOST, port=API_PORT, reload=False)
+
+
+# ─── Reports endpoints (Phase 8) ─────────────────────────────────────────────
+
+from reports.report_service import ReportService
+
+_report_service = ReportService()
+
+
+class GenerateReportRequest(BaseModel):
+    organization_id: str
+    period_start:    str   # ISO 8601
+    period_end:      str
+    cadence:         str = "on_demand"
+    generated_by:    str = "user"
+
+
+@app.post("/reports/generate")
+async def generate_report(req: GenerateReportRequest, background_tasks: BackgroundTasks):
+    """
+    Génère un rapport PDF en tâche de fond.
+    Retourne l'ID du rapport immédiatement ; le PDF est disponible dans Storage quelques secondes après.
+    """
+    import uuid
+    report_id = str(uuid.uuid4())
+
+    def _generate():
+        try:
+            _report_service.generate_report(
+                organization_id=req.organization_id,
+                period_start=req.period_start,
+                period_end=req.period_end,
+                cadence=req.cadence,
+                generated_by=req.generated_by,
+            )
+        except Exception as e:
+            logger.error(f"Erreur génération rapport {report_id}: {e}")
+
+    background_tasks.add_task(_generate)
+    return {"report_id": report_id, "status": "generating"}
