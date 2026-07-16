@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/PageHeader";
+import Link from "next/link";
 
 const STAT_CARDS = [
   { label: "Caméras connectées", value: "—" },
@@ -10,6 +11,11 @@ const STAT_CARDS = [
 export default function DashboardPage() {
   return (
     <div>
+      <div className="mb-4 flex justify-end">
+        <Link href="/diagnostic" className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-300 hover:border-brand hover:text-brand">
+          🔍 Diagnostic Firebase
+        </Link>
+      </div>
       <PageHeader
         title="Dashboard"
         description="Vue d'ensemble en temps réel de toutes vos organisations et caméras."
