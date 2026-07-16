@@ -5,7 +5,16 @@ import { getStorage,    type FirebaseStorage }  from "firebase/storage";
 import { getFunctions,  type Functions }        from "firebase/functions";
 
 // Projet Firebase : ai-guard-vision-8ef41
-const firebaseConfig = {
+// Indique si les variables d'env NEXT_PUBLIC_* ont bien été fournies au build
+// (référence STATIQUE obligatoire pour que Next.js les remplace côté client).
+export const firebaseEnvPresence = {
+  NEXT_PUBLIC_FIREBASE_API_KEY:        !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID:     !!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: !!process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  NEXT_PUBLIC_FIREBASE_APP_ID:         !!process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+};
+
+export const firebaseConfig = {
   apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY            ?? "AIzaSyDD6PtkDgyIFBps2HoDBZAcSQSa9lMTzEE",
   authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN        ?? "ai-guard-vision-8ef41.firebaseapp.com",
   projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID         ?? "ai-guard-vision-8ef41",

@@ -9,7 +9,7 @@ import {
   ref, uploadBytes, getDownloadURL, deleteObject,
 } from "firebase/storage";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { db, storage, auth } from "@/lib/firebase/client";
+import { db, storage, auth, firebaseConfig, firebaseEnvPresence } from "@/lib/firebase/client";
 
 type CheckStatus = "pending" | "running" | "ok" | "error" | "warning";
 
@@ -58,21 +58,20 @@ export default function DiagnosticPage() {
 
     // ── 1. Variables d'environnement ──────────────────────────────────
     update("env", { status:"running", detail:"Vérification..." });
-    // IMPORTANT : Next.js ne remplace les variables NEXT_PUBLIC_* que si
-    // elles sont référencées STATIQUEMENT (pas via process.env[variable]).
-    // On les liste donc explicitement, une par une.
-    const envEntries: Record<string, string | undefined> = {
-      NEXT_PUBLIC_FIREBASE_API_KEY:         process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-      NEXT_PUBLIC_FIREBASE_PROJECT_ID:      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:  process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-      NEXT_PUBLIC_FIREBASE_APP_ID:          process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-    };
-    const missing = Object.keys(envEntries).filter((k) => !envEntries[k]);
+    // firebaseEnvPresence provient de client.ts où les variables sont
+    // référencées STATIQUEMENT (obligatoire pour que Next.js les remplace
+    // côté client — un accès dynamique process.env[k] ne fonctionne jamais).
+    const missing = Object.keys(firebaseEnvPresence).filter(
+      (k) => !firebaseEnvPresence[k as keyof typeof firebaseEnvPresence]
+    );
     if (missing.length === 0) {
-      update("env", { status:"ok", detail:`Projet: ai-guard-vision-8ef41` });
+      update("env", { status:"ok", detail:`Variables NEXT_PUBLIC_* détectées · Projet: ${firebaseConfig.projectId}` });
     } else {
-      update("env", { status:"error", detail:`Manquantes: ${missing.join(", ")}`,
-        fix:"Vercel → Settings → Environment Variables → ajouter les 6 NEXT_PUBLIC_FIREBASE_*" });
+      // Firebase fonctionne quand même grâce aux valeurs de repli intégrées
+      // dans client.ts — ce n'est donc pas bloquant, juste un avertissement.
+      update("env", { status:"warning",
+        detail:`Non détectées au build: ${missing.join(", ")} — Firebase utilise les valeurs de repli intégrées (Projet: ${firebaseConfig.projectId}).`,
+        fix:"Ajoutez les 6 variables dans Vercel PUIS redéployez (les NEXT_PUBLIC_* sont figées au moment du build)." });
     }
 
     // ── 2. Firebase Auth ─────────────────────────────────────────────
@@ -300,7 +299,7 @@ export default function DiagnosticPage() {
     setDone(true);
   }
 
-  const allOk    = checks.every((c) => c.status === "ok");
+  const allOk    = checks.every((c) => c.status === "ok" || c.status === "warning");
   const hasError = checks.some((c)  => c.status === "error");
 
   return (
