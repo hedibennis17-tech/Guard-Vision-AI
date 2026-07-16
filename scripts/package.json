@@ -1,0 +1,20 @@
+{
+  "name": "@visionguard/scripts",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "seed": "ts-node seed.ts",
+    "deploy:rules": "firebase deploy --only firestore:rules",
+    "deploy:indexes": "firebase deploy --only firestore:indexes",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:all": "firebase deploy"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.3.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.3",
+    "@types/node": "^20.14.9"
+  }
+}
