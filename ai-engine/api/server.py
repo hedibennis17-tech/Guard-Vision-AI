@@ -174,3 +174,33 @@ async def generate_report(req: GenerateReportRequest, background_tasks: Backgrou
 
     background_tasks.add_task(_generate)
     return {"report_id": report_id, "status": "generating"}
+
+
+# ─── Analytics endpoints (Phase 9) ───────────────────────────────────────────
+
+from analytics.analytics_aggregator import AnalyticsAggregator
+
+_analytics_aggregator = AnalyticsAggregator()
+
+
+class AggregateAnalyticsRequest(BaseModel):
+    organization_id: str
+    date:            str   # YYYY-MM-DD
+
+
+@app.post("/analytics/aggregate")
+async def aggregate_analytics(req: AggregateAnalyticsRequest):
+    try:
+        result = _analytics_aggregator.aggregate_day(req.organization_id, req.date)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/analytics/heatmap/{org_id}")
+async def get_heatmap(org_id: str, week_start: str = "2026-07-07"):
+    try:
+        data = _analytics_aggregator.aggregate_week_heatmap(org_id, week_start)
+        return {"heatmap": data, "weekStart": week_start}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

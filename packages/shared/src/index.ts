@@ -5,6 +5,7 @@ export * from "./types/camera";
 export * from "./types/event";
 export * from "./types/event-rules";
 export * from "./types/notification-prefs";
+export * from "./types/analytics";
 export * from "./types/marketplace";
 export * from "./types/livestream";
 export * from "./firebase/config";
