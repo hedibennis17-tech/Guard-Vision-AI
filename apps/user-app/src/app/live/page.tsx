@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 type Quality = "auto" | "hd" | "sd" | "low";
 
@@ -120,6 +121,14 @@ export default function LivePage() {
           </select>
           <span className="text-xs text-slate-600">Qualité</span>
         </div>
+      </div>
+
+      {/* Bouton caméra téléphone */}
+      <div className="mx-4 mt-3">
+        <Link href="/live/phone"
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 py-3 text-sm text-slate-400 hover:border-brand hover:text-brand">
+          📱 Utiliser la caméra de ce téléphone
+        </Link>
       </div>
 
       {/* Miniatures autres caméras */}

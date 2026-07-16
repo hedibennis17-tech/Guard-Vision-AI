@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 
 type ConnectorType =
   | "onvif" | "rtsp" | "hikvision" | "dahua"
-  | "axis" | "reolink" | "ring" | "nest" | "generic_ip";
+  | "axis" | "reolink" | "ring" | "nest" | "generic_ip"
+  | "phone_webcam";
 
 type Step = "choose_connector" | "credentials" | "test" | "done";
 
@@ -28,6 +30,14 @@ interface FieldDef {
 
 const CONNECTORS: ConnectorOption[] = [
   {
+    type: "phone_webcam",
+    name: "Téléphone / Webcam",
+    logo: "📱",
+    description: "Caméra de votre téléphone ou webcam — parfait pour tester Vision Guard sans matériel",
+    fields: [],
+    isPhoneCamera: true,
+  } as any,
+  {
     type: "onvif",
     name: "ONVIF",
     logo: "📡",
@@ -39,6 +49,14 @@ const CONNECTORS: ConnectorOption[] = [
       { key: "password", label: "Mot de passe",   type: "password", required: true },
     ],
   },
+  {
+    type: "phone_webcam",
+    name: "Téléphone / Webcam",
+    logo: "📱",
+    description: "Caméra de votre téléphone ou webcam — parfait pour tester Vision Guard sans matériel",
+    fields: [],
+    isPhoneCamera: true,
+  } as any,
   {
     type: "rtsp",
     name: "RTSP / IP",
@@ -53,6 +71,14 @@ const CONNECTORS: ConnectorOption[] = [
     ],
   },
   {
+    type: "phone_webcam",
+    name: "Téléphone / Webcam",
+    logo: "📱",
+    description: "Caméra de votre téléphone ou webcam — parfait pour tester Vision Guard sans matériel",
+    fields: [],
+    isPhoneCamera: true,
+  } as any,
+  {
     type: "hikvision",
     name: "Hikvision",
     logo: "🔴",
@@ -65,6 +91,14 @@ const CONNECTORS: ConnectorOption[] = [
       { key: "password", label: "Mot de passe",   type: "password", required: true },
     ],
   },
+  {
+    type: "phone_webcam",
+    name: "Téléphone / Webcam",
+    logo: "📱",
+    description: "Caméra de votre téléphone ou webcam — parfait pour tester Vision Guard sans matériel",
+    fields: [],
+    isPhoneCamera: true,
+  } as any,
   {
     type: "dahua",
     name: "Dahua",
@@ -79,6 +113,14 @@ const CONNECTORS: ConnectorOption[] = [
     ],
   },
   {
+    type: "phone_webcam",
+    name: "Téléphone / Webcam",
+    logo: "📱",
+    description: "Caméra de votre téléphone ou webcam — parfait pour tester Vision Guard sans matériel",
+    fields: [],
+    isPhoneCamera: true,
+  } as any,
+  {
     type: "axis",
     name: "Axis",
     logo: "🟠",
@@ -89,6 +131,14 @@ const CONNECTORS: ConnectorOption[] = [
       { key: "password", label: "Mot de passe",   type: "password", required: true },
     ],
   },
+  {
+    type: "phone_webcam",
+    name: "Téléphone / Webcam",
+    logo: "📱",
+    description: "Caméra de votre téléphone ou webcam — parfait pour tester Vision Guard sans matériel",
+    fields: [],
+    isPhoneCamera: true,
+  } as any,
   {
     type: "reolink",
     name: "Reolink",
@@ -101,6 +151,14 @@ const CONNECTORS: ConnectorOption[] = [
     ],
   },
   {
+    type: "phone_webcam",
+    name: "Téléphone / Webcam",
+    logo: "📱",
+    description: "Caméra de votre téléphone ou webcam — parfait pour tester Vision Guard sans matériel",
+    fields: [],
+    isPhoneCamera: true,
+  } as any,
+  {
     type: "ring",
     name: "Ring",
     logo: "💍",
@@ -108,6 +166,14 @@ const CONNECTORS: ConnectorOption[] = [
     requiresOAuth: true,
     fields: [],
   },
+  {
+    type: "phone_webcam",
+    name: "Téléphone / Webcam",
+    logo: "📱",
+    description: "Caméra de votre téléphone ou webcam — parfait pour tester Vision Guard sans matériel",
+    fields: [],
+    isPhoneCamera: true,
+  } as any,
   {
     type: "nest",
     name: "Google Nest",
@@ -138,7 +204,14 @@ export default function AddCameraPage() {
   const [discovering, setDiscovering] = useState(false);
   const [discovered, setDiscovered] = useState<{ name: string; host: string; manufacturer?: string }[]>([]);
 
+  const router = useRouter();
+
   function handleSelectConnector(connector: ConnectorOption) {
+    // Caméra téléphone → page dédiée avec WebRTC
+    if ((connector as any).type === "phone_webcam") {
+      router.push("/cameras/phone");
+      return;
+    }
     setSelected(connector);
     setCredentials({});
     setStep("credentials");
@@ -260,6 +333,9 @@ export default function AddCameraPage() {
                 <div className="mb-2 flex items-center gap-2">
                   <span className="text-xl">{connector.logo}</span>
                   <span className="font-medium text-white">{connector.name}</span>
+                  {(connector as any).type === "phone_webcam" && (
+                    <span className="ml-auto rounded-full bg-emerald-500/10 border border-emerald-800 px-2 py-0.5 text-xs text-emerald-400">✅ Test rapide</span>
+                  )}
                   {connector.requiresOAuth && (
                     <span className="ml-auto rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-400">OAuth</span>
                   )}

@@ -125,7 +125,8 @@ export const CONNECTOR_LABELS: Record<CameraConnectorType, string> = {
   onvif:      "ONVIF",
   rtsp:       "RTSP / IP",
   usb:        "USB",
-  generic_ip: "IP Générique",
+  generic_ip:   "IP Générique",
+  phone_webcam: "📱 Téléphone / Webcam",
 };
 
 export const STATUS_LABELS: Record<CameraDoc["status"], string> = {

@@ -8,7 +8,8 @@ export type CameraConnectorType =
   | "onvif"
   | "rtsp"
   | "usb"
-  | "generic_ip";
+  | "generic_ip"
+  | "phone_webcam";   // Caméra téléphone / webcam navigateur (WebRTC)
 
 export type CameraStatus = "online" | "offline" | "connecting" | "error";
 
