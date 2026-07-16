@@ -7,5 +7,6 @@ export * from "./types/event-rules";
 export * from "./types/notification-prefs";
 export * from "./types/analytics";
 export * from "./types/marketplace";
+export * from "./types/marketplace-catalog";
 export * from "./types/livestream";
 export * from "./firebase/config";

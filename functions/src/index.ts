@@ -13,3 +13,4 @@ export { acknowledgeEvent }               from "./http/acknowledgeEvent";
 export { generateReport, scheduleDailyReports, scheduleWeeklyReports, scheduleMonthlyReports }
   from "./reports/generateReport";
 export { scheduleAnalytics, getAnalytics } from "./analytics/scheduleAnalytics";
+export { enableModule, disableModule }     from "./marketplace/moduleManager";
