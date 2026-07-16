@@ -25,9 +25,15 @@ export default function PhoneCameraPage() {
   const [pipeLog,     setPipeLog]     = useState<string>("En attente...");
   const [totalSaved,  setTotalSaved]  = useState(0);
 
-  // Auto-init au montage — crée org + caméra si nécessaire
+  // Auto-init — attendre que Firebase Auth soit prêt avant de setup
   useEffect(() => {
-    (async () => {
+    const unsubAuth = auth.onAuthStateChanged(async (user) => {
+      unsubAuth(); // écouter une seule fois
+      if (!user) {
+        setPipeLog("❌ Non connecté — allez sur /login");
+        return;
+      }
+      (async () => {
       try {
         const status = await checkSetup();
         let orgId = status.organizationId;
@@ -56,7 +62,11 @@ export default function PhoneCameraPage() {
         setPipeLog(`❌ Erreur: ${err.message}`);
       }
     })();
-    return () => { streamRef.current?.getTracks().forEach((t) => t.stop()); };
+    });
+    return () => {
+      unsubAuth();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
   }, []);
 
   // Callback détection → pipeline Firestore

@@ -11,7 +11,7 @@ export interface SetupStatus {
 }
 
 export async function checkSetup(): Promise<SetupStatus> {
-  const user = auth.currentUser;
+  const user = auth.currentUser ?? await waitForAuth();
   if (!user) return { authenticated:false, hasOrganization:false, hasCamera:false };
 
   try {
@@ -42,9 +42,20 @@ export async function checkSetup(): Promise<SetupStatus> {
   }
 }
 
+/** Attend que Firebase Auth soit initialisé (évite le bug currentUser=null au démarrage) */
+async function waitForAuth() {
+  const { onAuthStateChanged } = await import("firebase/auth");
+  return new Promise<import("firebase/auth").User | null>((resolve) => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      unsub();
+      resolve(user);
+    });
+  });
+}
+
 export async function quickSetup(organizationName: string = "Ma maison"): Promise<{ organizationId:string }> {
-  const user = auth.currentUser;
-  if (!user) throw new Error("Non connecté — connectez-vous d'abord.");
+  const user = auth.currentUser ?? await waitForAuth();
+  if (!user) throw new Error("Non connecté — connectez-vous d'abord. (→ /login)");
 
   const now   = new Date().toISOString();
   const orgId = doc(collection(db, "organizations")).id;
@@ -99,7 +110,7 @@ export async function createCameraDirectly(input: {
   connector: string;
   timezone: string;
 }): Promise<string> {
-  const user = auth.currentUser;
+  const user = auth.currentUser ?? await waitForAuth();
   if (!user) throw new Error("Non connecté.");
 
   const now = new Date().toISOString();
