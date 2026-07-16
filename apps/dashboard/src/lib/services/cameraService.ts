@@ -124,6 +124,7 @@ export const CONNECTOR_LABELS: Record<CameraConnectorType, string> = {
   axis:       "Axis",
   onvif:      "ONVIF",
   rtsp:       "RTSP / IP",
+  usb:        "USB",
   generic_ip: "IP Générique",
 };
 
