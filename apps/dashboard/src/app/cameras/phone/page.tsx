@@ -268,7 +268,7 @@ export default function PhoneCameraPage() {
                 ) : (
                   <div className="space-y-1.5">
                     {Object.entries(byCategory).map(([cat, count]) => {
-                      const catDef = CATEGORY_LABELS[cat as any] ?? { label: cat, icon: "📦", color: "#64748B" };
+                      const catDef = CATEGORY_LABELS[cat as keyof typeof CATEGORY_LABELS] ?? { label: cat, icon: "📦", color: "#64748B" };
                       return (
                         <div key={cat} className="flex items-center gap-2 rounded-lg px-2 py-1.5"
                           style={{ background: catDef.color + "15" }}>
@@ -361,4 +361,3 @@ export default function PhoneCameraPage() {
   );
 }
 
-const detFps = 0; // placeholder — valeur fournie par le hook
