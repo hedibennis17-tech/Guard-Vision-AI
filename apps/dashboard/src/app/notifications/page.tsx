@@ -1,153 +1,138 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { collection, query, orderBy, limit, onSnapshot, doc, updateDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase/client";
+import { useOrganization } from "@/lib/context/OrganizationContext";
 import { PageHeader } from "@/components/PageHeader";
+import Link from "next/link";
 
 interface NotifItem {
-  id: string;
-  title: string;
-  body: string;
-  read: boolean;
-  sentChannels: string[];
+  id:       string;
+  title:    string;
+  body:     string;
   severity: "critical" | "warning" | "info";
+  read:     boolean;
   createdAt: string;
   eventId?: string;
 }
 
-const SEVERITY_STYLES = {
-  critical: { border: "border-l-red-500",   badge: "bg-red-500/10 text-red-400 border border-red-800",     dot: "bg-red-500"   },
-  warning:  { border: "border-l-amber-500", badge: "bg-amber-500/10 text-amber-400 border border-amber-800", dot: "bg-amber-500" },
-  info:     { border: "border-l-slate-600", badge: "bg-slate-800 text-slate-400 border border-slate-700",   dot: "bg-slate-500" },
+const SEV_STYLE: Record<string, string> = {
+  critical: "border-l-red-500 bg-red-900/5",
+  warning:  "border-l-amber-500 bg-amber-900/5",
+  info:     "border-l-slate-600",
 };
 
-const CHANNEL_ICONS: Record<string, string> = { push: "📱", email: "📧", sms: "💬" };
-
-const DEMO: NotifItem[] = [
-  { id:"n1", title:"🚨 Alerte critique", read:false, body:"Feu détecté — Entrepôt.", sentChannels:["push","email"], severity:"critical", createdAt:"il y a 2min",  eventId:"e1" },
-  { id:"n2", title:"🚨 Alerte critique", read:false, body:"Intrusion — 7 personnes en 42s — Entrée principale.", sentChannels:["push","email"], severity:"critical", createdAt:"il y a 5min",  eventId:"e2" },
-  { id:"n3", title:"⚠️ Alerte",          read:false, body:"Personne détectée — Parking.", sentChannels:["push"], severity:"warning", createdAt:"il y a 12min", eventId:"e3" },
-  { id:"n4", title:"⚠️ Alerte",          read:true,  body:"Véhicule détecté — Entrée.", sentChannels:["push","email"], severity:"warning", createdAt:"il y a 1h",   eventId:"e4" },
-  { id:"n5", title:"ℹ️ Info",            read:true,  body:"Animal détecté — Cour arrière.", sentChannels:["push"], severity:"info", createdAt:"il y a 2h" },
-];
-
 export default function NotificationsPage() {
-  const [notifs,    setNotifs]    = useState<NotifItem[]>(DEMO);
-  const [activeTab, setActiveTab] = useState<"all"|"unread">("all");
-  const [showPrefs, setShowPrefs] = useState(false);
-  const [prefs,     setPrefs]     = useState({ push:true, email:true, sms:false, minSeverity:"warning", dndEnabled:false, dndStart:22, dndEnd:7 });
+  const { currentOrg } = useOrganization();
+  const [notifs,  setNotifs]  = useState<NotifItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const unreadCount = notifs.filter((n) => !n.read).length;
-  const displayed   = notifs.filter((n) => activeTab === "all" || !n.read);
+  useEffect(() => {
+    if (!currentOrg?.id) { setLoading(false); return; }
 
-  const markRead    = (id: string) => setNotifs((p) => p.map((n) => n.id===id ? {...n,read:true} : n));
-  const markAllRead = () => setNotifs((p) => p.map((n) => ({...n,read:true})));
+    const q = query(
+      collection(db, "organizations", currentOrg.id, "notifications"),
+      orderBy("createdAt", "desc"),
+      limit(50),
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      setNotifs(snap.docs.map((d) => ({ id:d.id, ...d.data() } as NotifItem)));
+      setLoading(false);
+    }, () => setLoading(false));
+
+    return unsub;
+  }, [currentOrg?.id]);
+
+  async function markRead(id: string) {
+    if (!currentOrg?.id) return;
+    await updateDoc(doc(db, "organizations", currentOrg.id, "notifications", id), { read:true });
+  }
+
+  async function markAllRead() {
+    notifs.filter(n => !n.read).forEach(n => markRead(n.id));
+  }
+
+  const unread = notifs.filter(n => !n.read).length;
 
   return (
     <div>
-      <PageHeader title="Notifications" description="Centre de notifications — Push, Email et préférences." />
+      <PageHeader title="Notifications" description="Alertes en temps réel — Firestore live." />
 
-      <div className="flex gap-6">
-        <div className="flex-1">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex gap-1 rounded-lg border border-slate-800 bg-slate-900 p-1">
-              {(["all","unread"] as const).map((tab) => (
-                <button key={tab} onClick={() => setActiveTab(tab)}
-                  className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${activeTab===tab ? "bg-brand text-white" : "text-slate-400 hover:text-white"}`}>
-                  {tab==="all" ? "Toutes" : "Non lues"}
-                  {tab==="unread" && unreadCount>0 && (
-                    <span className="ml-2 rounded-full bg-red-500 px-1.5 py-0.5 text-xs text-white">{unreadCount}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              {unreadCount>0 && <button onClick={markAllRead} className="text-xs text-slate-400 hover:text-slate-200">Tout marquer lu</button>}
-              <button onClick={() => setShowPrefs(!showPrefs)}
-                className={`rounded-lg border px-3 py-1.5 text-xs ${showPrefs ? "border-brand text-brand" : "border-slate-800 text-slate-400"}`}>
-                ⚙️ Préférences
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {displayed.map((notif) => {
-              const s = SEVERITY_STYLES[notif.severity];
-              return (
-                <div key={notif.id} onClick={() => markRead(notif.id)}
-                  className={`flex cursor-pointer items-start gap-4 rounded-xl border-l-4 border border-slate-800 bg-slate-900 p-4 hover:border-slate-700 ${s.border} ${notif.read ? "opacity-60" : ""}`}>
-                  <div className="mt-1.5 shrink-0">
-                    <div className={`h-2 w-2 rounded-full ${notif.read ? "bg-slate-800" : s.dot}`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${s.badge}`}>{notif.severity}</span>
-                      <span className="text-sm font-medium text-white">{notif.title}</span>
-                    </div>
-                    <p className="text-sm text-slate-400">{notif.body}</p>
-                    <div className="mt-2 flex items-center gap-3 text-xs text-slate-600">
-                      <span>{notif.createdAt}</span>
-                      <span>· {notif.sentChannels.map((c) => CHANNEL_ICONS[c]).join(" ")}</span>
-                      {notif.eventId && (
-                        <a href={`/events?event=${notif.eventId}`} className="text-brand hover:underline" onClick={(e) => e.stopPropagation()}>
-                          Voir →
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            {displayed.length===0 && (
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-10 text-center text-sm text-slate-600">Aucune notification.</div>
-            )}
-          </div>
+      <div className="mb-4 flex items-center justify-between">
+        <span className="text-sm text-slate-400">
+          {unread > 0 ? <span className="text-amber-400">{unread} non lue(s)</span> : "Tout lu"}
+          {" · "}{notifs.length} total
+        </span>
+        <div className="flex gap-2">
+          {unread > 0 && (
+            <button onClick={markAllRead} className="text-xs text-slate-400 hover:text-slate-200">
+              Tout marquer lu
+            </button>
+          )}
         </div>
-
-        {showPrefs && (
-          <div className="w-80 shrink-0 rounded-xl border border-slate-800 bg-slate-900 p-5">
-            <h3 className="mb-5 text-sm font-semibold text-white">Préférences</h3>
-
-            <p className="mb-2 text-xs font-medium text-slate-400">Canaux</p>
-            <div className="mb-4 space-y-2">
-              {[{k:"push",l:"📱 Push"},{k:"email",l:"📧 Email"},{k:"sms",l:"💬 SMS (bientôt)"}].map(({k,l}) => (
-                <label key={k} className="flex items-center gap-3 rounded-lg border border-slate-800 p-3 cursor-pointer">
-                  <input type="checkbox" checked={prefs[k as keyof typeof prefs] as boolean}
-                    onChange={(e) => setPrefs((p) => ({...p,[k]:e.target.checked}))}
-                    disabled={k==="sms"} className="accent-brand" />
-                  <span className="text-sm text-slate-200">{l}</span>
-                </label>
-              ))}
-            </div>
-
-            <p className="mb-2 text-xs font-medium text-slate-400">Sévérité minimale</p>
-            <select value={prefs.minSeverity} onChange={(e) => setPrefs((p) => ({...p,minSeverity:e.target.value}))}
-              className="mb-4 w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200">
-              <option value="info">Toutes (info + warning + critique)</option>
-              <option value="warning">Warning et critiques</option>
-              <option value="critical">Critiques seulement</option>
-            </select>
-
-            <div className="mb-4 flex items-center justify-between">
-              <p className="text-xs font-medium text-slate-400">Ne pas déranger</p>
-              <label className="relative inline-flex cursor-pointer items-center">
-                <input type="checkbox" checked={prefs.dndEnabled} onChange={(e) => setPrefs((p) => ({...p,dndEnabled:e.target.checked}))} className="peer sr-only" />
-                <div className="h-5 w-9 rounded-full bg-slate-700 peer-checked:bg-brand after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-4" />
-              </label>
-            </div>
-            {prefs.dndEnabled && (
-              <div className="mb-4 flex items-center gap-2 text-xs text-slate-400">
-                <span>De</span>
-                <input type="number" min={0} max={23} value={prefs.dndStart} onChange={(e) => setPrefs((p) => ({...p,dndStart:+e.target.value}))} className="w-14 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-center text-white" />
-                <span>h à</span>
-                <input type="number" min={0} max={23} value={prefs.dndEnd} onChange={(e) => setPrefs((p) => ({...p,dndEnd:+e.target.value}))} className="w-14 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-center text-white" />
-                <span>h</span>
-              </div>
-            )}
-
-            <button className="w-full rounded-lg bg-brand py-2 text-sm font-medium text-white">Sauvegarder</button>
-          </div>
-        )}
       </div>
+
+      {loading && (
+        <div className="flex items-center justify-center py-16 gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+          <span className="text-sm text-slate-400">Chargement depuis Firestore...</span>
+        </div>
+      )}
+
+      {!loading && !currentOrg && (
+        <div className="rounded-xl border border-amber-800/40 bg-amber-900/10 p-8 text-center">
+          <p className="text-amber-400 mb-3">Aucune organisation configurée</p>
+          <Link href="/cameras/phone" className="rounded-lg bg-brand px-4 py-2 text-sm">
+            → Configurer via Caméra Phone
+          </Link>
+        </div>
+      )}
+
+      {!loading && currentOrg && notifs.length === 0 && (
+        <div className="rounded-xl border border-dashed border-slate-700 p-12 text-center">
+          <p className="text-4xl mb-3">🔔</p>
+          <p className="text-slate-400 mb-2">Aucune notification</p>
+          <p className="text-xs text-slate-600 mb-4">
+            Les notifications apparaissent pour les détections warning et critical.
+          </p>
+          <Link href="/cameras/phone" className="rounded-lg bg-brand px-5 py-2 text-sm">
+            📱 Activer la caméra →
+          </Link>
+        </div>
+      )}
+
+      {!loading && notifs.length > 0 && (
+        <div className="space-y-2">
+          {notifs.map((n) => (
+            <div key={n.id} onClick={() => markRead(n.id)}
+              className={`flex cursor-pointer items-start gap-4 rounded-xl border-l-4 border border-slate-800 p-4 transition-colors hover:border-slate-700 ${SEV_STYLE[n.severity] ?? ""} ${n.read ? "opacity-60" : ""}`}>
+              <div className="mt-1 shrink-0">
+                <div className={`h-2 w-2 rounded-full ${n.read ? "bg-slate-700" : n.severity === "critical" ? "bg-red-500" : n.severity === "warning" ? "bg-amber-500" : "bg-slate-500"}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white">{n.title}</p>
+                <p className="text-sm text-slate-400 mt-0.5">{n.body}</p>
+                <div className="mt-2 flex items-center gap-3 text-xs text-slate-600">
+                  <span>{new Date(n.createdAt).toLocaleString("fr-CA")}</span>
+                  {n.eventId && (
+                    <Link href="/events" className="text-brand hover:underline" onClick={e=>e.stopPropagation()}>
+                      Voir l'event →
+                    </Link>
+                  )}
+                </div>
+              </div>
+              {!n.read && (
+                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${
+                  n.severity === "critical" ? "border-red-800 text-red-400"
+                  : "border-amber-800 text-amber-400"
+                }`}>{n.severity}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
