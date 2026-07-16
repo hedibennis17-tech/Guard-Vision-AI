@@ -30,6 +30,7 @@ export default function PhoneCameraPage() {
   const [pipeStatus,  setPipeStatus]  = useState<"idle"|"saving"|"ok"|"err">("idle");
   const [setupBusy,   setSetupBusy]   = useState(false);
   const [streamError, setStreamError] = useState<string|null>(null);
+  const [firebaseError, setFirebaseError] = useState<string|null>(null);
   const [autoSave,    setAutoSave]    = useState(true);
 
   // Vérifier le setup au montage
@@ -78,7 +79,7 @@ export default function PhoneCameraPage() {
   }, [status?.organizationId, cameraId, autoSave]);
 
   const { detections, isLoading, modelReady, fps, error: detError }
-    = useYoloDetection(videoRef, { mode:detMode, fps:8, confidence:0.40, onDetection:handleDetection });
+    = useYoloDetection(videoRef, { mode:detMode, fps:8, confidence:0.25, onDetection:handleDetection });
 
   // ── Setup ──────────────────────────────────────────────────────────
   async function doQuickSetup() {
@@ -89,7 +90,7 @@ export default function PhoneCameraPage() {
       setStatus(newStatus);
       setScreen("live");
     } catch (err: any) {
-      alert("Erreur setup : " + err.message);
+      setFirebaseError(err.message);
     } finally { setSetupBusy(false); }
   }
 
@@ -120,7 +121,10 @@ export default function PhoneCameraPage() {
       });
       setCameraId(id);
       setScreen("done");
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) {
+      alert("❌ " + err.message);
+      console.error("[saveCam]", err);
+    }
   }
 
   useEffect(() => { if (screen === "live") startCamera(); }, [screen]);
@@ -162,6 +166,11 @@ export default function PhoneCameraPage() {
             placeholder="Ex: Ma maison, Bureau, Chalet..."
             className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white placeholder:text-slate-600 focus:border-brand focus:outline-none mb-2" />
           <p className="text-xs text-slate-600">Vous pourrez ajouter d'autres organisations plus tard.</p>
+          <div className="mt-3 rounded-lg border border-amber-800/40 bg-amber-900/10 p-3 text-xs text-amber-400">
+            <p className="font-medium mb-1">⚠️ Avant tout — vérifiez les règles Firebase :</p>
+            <a href="https://console.firebase.google.com/project/ai-guard-vision-8ef41/firestore/rules" target="_blank" className="underline text-brand">Firebase Console → Firestore → Rules</a>
+            <p className="mt-1 text-amber-500">allow read, write: if request.auth != null;</p>
+          </div>
         </div>
 
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 mb-4 text-xs text-slate-500">
@@ -180,6 +189,11 @@ export default function PhoneCameraPage() {
             : "🚀 Créer mon espace Vision Guard"}
         </button>
 
+        {firebaseError && (
+          <div className="rounded-xl border border-red-800 bg-red-900/10 p-4 mb-4 text-xs text-red-400 whitespace-pre-line">
+            ❌ {firebaseError}
+          </div>
+        )}
         <button onClick={() => setScreen("live")} className="mt-2 w-full py-2 text-xs text-slate-600">
           Ignorer (sans sauvegarde)
         </button>
