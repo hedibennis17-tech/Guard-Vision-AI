@@ -207,7 +207,7 @@ export default function PhoneCameraPage() {
                 <div className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-2 py-1 text-xs">
                   {detMode === "off" ? <span className="text-slate-500">IA désactivée</span>
                     : isLoading ? <span className="text-brand flex gap-1"><span className="h-3 w-3 animate-spin rounded-full border border-brand border-t-transparent" /> Chargement modèle...</span>
-                    : modelReady ? <span className="text-emerald-400">🤖 {detFps ?? fps} fps · {detections.length} obj</span>
+                    : modelReady ? <span className="text-emerald-400">🤖 {fps} fps · {detections.length} obj</span>
                     : <span className="text-slate-500">En attente...</span>}
                 </div>
 
