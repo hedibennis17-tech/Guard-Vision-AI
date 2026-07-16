@@ -58,10 +58,16 @@ export default function DiagnosticPage() {
 
     // ── 1. Variables d'environnement ──────────────────────────────────
     update("env", { status:"running", detail:"Vérification..." });
-    const required = ["NEXT_PUBLIC_FIREBASE_API_KEY","NEXT_PUBLIC_FIREBASE_PROJECT_ID",
-                      "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET","NEXT_PUBLIC_FIREBASE_APP_ID"];
-    // Les variables NEXT_PUBLIC sont disponibles côté client
-    const missing = required.filter((k) => !process.env[k]);
+    // IMPORTANT : Next.js ne remplace les variables NEXT_PUBLIC_* que si
+    // elles sont référencées STATIQUEMENT (pas via process.env[variable]).
+    // On les liste donc explicitement, une par une.
+    const envEntries: Record<string, string | undefined> = {
+      NEXT_PUBLIC_FIREBASE_API_KEY:         process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID:      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:  process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+      NEXT_PUBLIC_FIREBASE_APP_ID:          process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+    };
+    const missing = Object.keys(envEntries).filter((k) => !envEntries[k]);
     if (missing.length === 0) {
       update("env", { status:"ok", detail:`Projet: ai-guard-vision-8ef41` });
     } else {
