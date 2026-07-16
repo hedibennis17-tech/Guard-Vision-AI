@@ -1,0 +1,41 @@
+/**
+ * Firebase client-side initialization — Dashboard
+ *
+ * Les valeurs sont injectées via les variables d'environnement Next.js.
+ * Ajouter dans Vercel → Settings → Environment Variables (ou .env.local en dev) :
+ *
+ *   NEXT_PUBLIC_FIREBASE_API_KEY
+ *   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+ *   NEXT_PUBLIC_FIREBASE_PROJECT_ID
+ *   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+ *   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+ *   NEXT_PUBLIC_FIREBASE_APP_ID
+ *
+ * Ces valeurs seront fournies dès que le projet Firebase (Firestore + Storage)
+ * sera communiqué.
+ */
+
+import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
+import { getAuth,       type Auth }         from "firebase/auth";
+import { getFirestore,  type Firestore }     from "firebase/firestore";
+import { getStorage,    type FirebaseStorage } from "firebase/storage";
+import { getFunctions,  type Functions }     from "firebase/functions";
+
+const firebaseConfig = {
+  apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY            ?? "",
+  authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN        ?? "",
+  projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID         ?? "",
+  storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET     ?? "",
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? "",
+  appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID             ?? "",
+};
+
+// Évite la double initialisation en Next.js (hot reload)
+const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+export const auth:      Auth            = getAuth(app);
+export const db:        Firestore       = getFirestore(app);
+export const storage:   FirebaseStorage = getStorage(app);
+export const functions: Functions       = getFunctions(app, "us-central1");
+
+export default app;
