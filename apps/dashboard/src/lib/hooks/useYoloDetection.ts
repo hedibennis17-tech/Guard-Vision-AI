@@ -4,38 +4,36 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { getClassDef } from "@/lib/detection/classMap";
 
 export interface Detection {
-  class:      string;
-  label:      string;
-  category:   string;
-  score:      number;
-  bbox:       [number, number, number, number];
-  color:      string;
-  severity:   string;
+  class:    string;
+  label:    string;
+  category: string;
+  score:    number;
+  bbox:     [number, number, number, number];
+  color:    string;
+  severity: string;
 }
 
 export type DetectionMode = "browser" | "server" | "off";
 
 export interface UseYoloDetectionOptions {
-  mode:              DetectionMode;
-  serverUrl?:        string;
-  fps?:              number;
-  confidence?:       number;
-  onDetection?:      (detections: Detection[]) => void;  // callback pour sauvegarder
-}
-
-export interface UseYoloDetectionResult {
-  detections:  Detection[];
-  isLoading:   boolean;
-  modelReady:  boolean;
-  fps:         number;
-  error:       string | null;
+  mode:         DetectionMode;
+  serverUrl?:   string;
+  fps?:         number;
+  confidence?:  number;
+  voteFrames?:  number;  // nb frames pour confirmer (évite faux positifs)
+  onDetection?: (dets: Detection[]) => void;
 }
 
 export function useYoloDetection(
   videoRef: React.RefObject<HTMLVideoElement>,
   options:  UseYoloDetectionOptions,
-): UseYoloDetectionResult {
-  const { mode, serverUrl, fps = 10, confidence = 0.40, onDetection } = options;
+) {
+  const {
+    mode, serverUrl, fps = 8,
+    confidence = 0.55,   // Plus strict pour éviter les faux positifs
+    voteFrames = 2,      // 2 frames consécutives pour confirmer
+    onDetection,
+  } = options;
 
   const [detections, setDetections] = useState<Detection[]>([]);
   const [isLoading,  setIsLoading]  = useState(false);
@@ -48,21 +46,38 @@ export function useYoloDetection(
   const fpsCount    = useRef(0);
   const fpsTimer    = useRef<NodeJS.Timeout | null>(null);
 
-  // Mapper une prédiction → Detection Vision Guard
-  const mapPrediction = useCallback((cls: string, score: number, bbox: number[]): Detection => {
-    const def = getClassDef(cls);
-    return {
-      class:    cls,
-      label:    def.label,
-      category: def.category,
-      score,
-      bbox:     bbox as [number, number, number, number],
-      color:    def.color,
-      severity: def.severity,
-    };
+  // Vote buffer : class → nombre de frames consécutives détectées
+  const voteBuffer = useRef<Record<string, number>>({});
+  // Motion detection simple
+  const prevFrame  = useRef<ImageData | null>(null);
+
+  const hasMotion = useCallback((video: HTMLVideoElement): boolean => {
+    try {
+      const w = Math.floor(video.videoWidth / 4);
+      const h = Math.floor(video.videoHeight / 4);
+      if (!w || !h) return true;
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return true;
+      ctx.drawImage(video, 0, 0, w, h);
+      const curr = ctx.getImageData(0, 0, w, h);
+      if (!prevFrame.current) { prevFrame.current = curr; return true; }
+      let diff = 0;
+      for (let i = 0; i < curr.data.length; i += 4) {
+        if (Math.abs(curr.data[i+1] - prevFrame.current.data[i+1]) > 20) diff++;
+      }
+      prevFrame.current = curr;
+      return diff / (curr.data.length / 4) >= 0.005; // 0.5% pixels bougent
+    } catch { return true; }
   }, []);
 
-  // ── Mode browser : TF.js COCO-SSD ──────────────────────────────────────
+  const mapPrediction = useCallback((cls: string, score: number, bbox: number[]): Detection => {
+    const def = getClassDef(cls);
+    return { class:cls, label:def.label, category:def.category, score,
+             bbox:bbox as [number,number,number,number], color:def.color, severity:def.severity };
+  }, []);
+
   const loadModel = useCallback(async () => {
     if (modelRef.current) return;
     setIsLoading(true);
@@ -73,98 +88,92 @@ export function useYoloDetection(
       modelRef.current = await cocoSsd.load({ base: "mobilenet_v2" });
       setModelReady(true);
     } catch {
-      setError("Impossible de charger le modèle IA.");
-    } finally {
-      setIsLoading(false);
-    }
+      setError("Impossible de charger le modèle.");
+    } finally { setIsLoading(false); }
   }, []);
 
-  const detectBrowser = useCallback(async () => {
+  const detect = useCallback(async () => {
     const video = videoRef.current;
     if (!video || !modelRef.current || video.readyState < 2) return;
+
+    // 1. Motion gate — analyser seulement si mouvement
+    if (!hasMotion(video)) {
+      // Pas de mouvement → décrémente les votes
+      Object.keys(voteBuffer.current).forEach((k) => {
+        voteBuffer.current[k] = Math.max(0, (voteBuffer.current[k] ?? 0) - 1);
+      });
+      setDetections([]); // rien à afficher
+      fpsCount.current++;
+      return;
+    }
+
+    // 2. Inférence YOLO
     try {
       const predictions = await modelRef.current.detect(video);
-      const dets: Detection[] = predictions
-        .filter((p: any) => p.score >= confidence)
-        .map((p: any) => mapPrediction(p.class, p.score, p.bbox));
+
+      // 3. Filtrer par confidence et classes pertinentes
+      const candidates = predictions.filter((p: any) => {
+        // Seuils par catégorie
+        const def = getClassDef(p.class);
+        const threshold = def.category === "human" ? 0.65   // très strict pour personnes
+          : def.category === "animal"   ? 0.55
+          : def.category === "vehicle"  ? 0.55
+          : def.category === "fire"     ? 0.40   // plus sensible pour feu
+          : confidence;
+        return p.score >= threshold;
+      });
+
+      // 4. Vote buffer — confirmer sur N frames
+      const currentClasses = new Set(candidates.map((p: any) => p.class));
+
+      // Incrémenter les classes vues
+      for (const p of candidates) {
+        voteBuffer.current[p.class] = (voteBuffer.current[p.class] ?? 0) + 1;
+      }
+      // Décrémenter les classes absentes
+      for (const cls of Object.keys(voteBuffer.current)) {
+        if (!currentClasses.has(cls)) {
+          voteBuffer.current[cls] = Math.max(0, (voteBuffer.current[cls] ?? 0) - 1);
+        }
+      }
+
+      // 5. Garder seulement les classes confirmées (>= voteFrames)
+      const confirmed = candidates.filter((p: any) =>
+        (voteBuffer.current[p.class] ?? 0) >= voteFrames
+      );
+
+      const dets: Detection[] = confirmed.map((p: any) =>
+        mapPrediction(p.class, p.score, p.bbox)
+      );
 
       setDetections(dets);
       if (dets.length > 0) onDetection?.(dets);
       fpsCount.current++;
     } catch {}
-  }, [videoRef, confidence, mapPrediction, onDetection]);
+  }, [videoRef, confidence, voteFrames, hasMotion, mapPrediction, onDetection]);
 
-  // ── Mode server : Python AI Engine ─────────────────────────────────────
-  const detectServer = useCallback(async () => {
-    const video = videoRef.current;
-    if (!video || video.readyState < 2 || !serverUrl) return;
-    try {
-      const canvas = document.createElement("canvas");
-      canvas.width  = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext("2d")?.drawImage(video, 0, 0);
-      const base64 = canvas.toDataURL("image/jpeg", 0.65).split(",")[1];
-
-      const res = await fetch(`${serverUrl}/analyze/frame`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ image_base64: base64 }),
-        signal:  AbortSignal.timeout(2000),
-      });
-      if (!res.ok) throw new Error("Serveur non disponible");
-
-      const data = await res.json();
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-
-      const dets: Detection[] = (data.detections ?? [])
-        .filter((d: any) => d.confidence >= confidence)
-        .map((d: any) => {
-          const bb = d.bounding_box;
-          const px_x = (bb.x - bb.width  / 2) * vw;
-          const px_y = (bb.y - bb.height / 2) * vh;
-          return mapPrediction(d.class_name, d.confidence, [px_x, px_y, bb.width * vw, bb.height * vh]);
-        });
-
-      setDetections(dets);
-      if (dets.length > 0) onDetection?.(dets);
-      setModelReady(true);
-      setError(null);
-      fpsCount.current++;
-    } catch (err: any) {
-      if (err.name !== "AbortError") setError("YOLOv11 server unreachable. Passer en mode navigateur.");
-    }
-  }, [videoRef, serverUrl, confidence, mapPrediction, onDetection]);
-
-  // ── Boucle principale ───────────────────────────────────────────────────
   useEffect(() => {
     if (mode === "off") {
       intervalRef.current && clearInterval(intervalRef.current);
       setDetections([]);
-      setModelReady(false);
+      voteBuffer.current = {};
       return;
     }
-
     const setup = async () => {
       if (mode === "browser") await loadModel();
       intervalRef.current && clearInterval(intervalRef.current);
-      intervalRef.current = setInterval(
-        mode === "browser" ? detectBrowser : detectServer,
-        Math.round(1000 / fps),
-      );
+      intervalRef.current = setInterval(detect, Math.round(1000 / fps));
       fpsTimer.current && clearInterval(fpsTimer.current);
       fpsTimer.current = setInterval(() => {
-        setCurrentFps(fpsCount.current);
-        fpsCount.current = 0;
+        setCurrentFps(fpsCount.current); fpsCount.current = 0;
       }, 1000);
     };
-
     setup();
     return () => {
       intervalRef.current && clearInterval(intervalRef.current);
       fpsTimer.current    && clearInterval(fpsTimer.current);
     };
-  }, [mode, fps, loadModel, detectBrowser, detectServer]);
+  }, [mode, fps, loadModel, detect]);
 
   return { detections, isLoading, modelReady, fps: currentFps, error };
 }
