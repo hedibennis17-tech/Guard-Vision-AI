@@ -1,232 +1,336 @@
 "use client";
 
-import { useState } from "react";
-import type { GridLayout } from "@visionguard/shared";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { db } from "@/lib/firebase/client";
+import { useOrganization } from "@/lib/context/OrganizationContext";
+import { DetectionOverlay } from "@/components/DetectionOverlay";
+import { useYoloDetection, type DetectionMode } from "@/lib/hooks/useYoloDetection";
+import { runDetectionPipeline } from "@/lib/services/pipelineService";
+import Link from "next/link";
+import type { CameraDoc } from "@visionguard/shared";
 
-const GRID_LAYOUTS: GridLayout[] = [
-  { id: "1x1",  label: "1 caméra",   cols: 1, rows: 1, maxCameras: 1  },
-  { id: "1x2",  label: "2 caméras",  cols: 2, rows: 1, maxCameras: 2  },
-  { id: "2x2",  label: "4 caméras",  cols: 2, rows: 2, maxCameras: 4  },
-  { id: "3x3",  label: "9 caméras",  cols: 3, rows: 3, maxCameras: 9  },
-  { id: "4x4",  label: "16 caméras", cols: 4, rows: 4, maxCameras: 16 },
+// Grilles disponibles
+const GRIDS = [
+  { id:"1x1",  label:"1",  cols:1, max:1  },
+  { id:"1x2",  label:"2",  cols:2, max:2  },
+  { id:"2x2",  label:"4",  cols:2, max:4  },
+  { id:"3x3",  label:"9",  cols:3, max:9  },
+  { id:"4x4",  label:"16", cols:4, max:16 },
 ];
 
-const MOCK_CAMERAS = [
-  { id: "cam1", name: "Entrée principale",  status: "live" },
-  { id: "cam2", name: "Parking",            status: "live" },
-  { id: "cam3", name: "Couloir A",          status: "live" },
-  { id: "cam4", name: "Salle serveurs",     status: "offline" },
-  { id: "cam5", name: "Réception",          status: "live" },
-  { id: "cam6", name: "Sortie de secours",  status: "live" },
-  { id: "cam7", name: "Entrepôt",           status: "live" },
-  { id: "cam8", name: "Bureau direction",   status: "live" },
-  { id: "cam9", name: "Cour arrière",       status: "live" },
-];
+// ── Composant flux d'une caméra ─────────────────────────────────────────────
+function CameraCell({
+  camera,
+  orgId,
+  isFullscreen,
+  onFullscreen,
+  aiEnabled,
+}: {
+  camera:       CameraDoc;
+  orgId:        string;
+  isFullscreen: boolean;
+  onFullscreen: () => void;
+  aiEnabled:    boolean;
+}) {
+  const videoRef  = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [streaming, setStreaming] = useState(false);
+  const [error,     setError]    = useState<string | null>(null);
+  const [saved,     setSaved]    = useState(0);
 
-type Quality = "auto" | "hd" | "sd" | "low";
+  const isPhone = camera.connector === "phone_webcam";
 
-export default function LiveMonitoringPage() {
-  const [layoutId, setLayoutId] = useState("2x2");
-  const [quality, setQuality] = useState<Quality>("auto");
-  const [fullscreenCam, setFullscreenCam] = useState<string | null>(null);
-  const [mutedCams, setMutedCams] = useState<Set<string>>(new Set());
-
-  const layout = GRID_LAYOUTS.find((l) => l.id === layoutId) ?? GRID_LAYOUTS[2];
-  const visibleCameras = MOCK_CAMERAS.slice(0, layout.maxCameras);
-
-  function toggleMute(camId: string) {
-    setMutedCams((prev) => {
-      const next = new Set(prev);
-      next.has(camId) ? next.delete(camId) : next.add(camId);
-      return next;
-    });
+  // Démarrer le stream WebRTC pour les caméras phone
+  async function startStream() {
+    if (!isPhone) return;
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode:"environment", width:{ideal:1280}, height:{ideal:720} },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setStreaming(true);
+    } catch (e: any) {
+      setError("Accès caméra refusé");
+    }
   }
 
-  // Vue plein écran — une seule caméra
-  if (fullscreenCam) {
-    const cam = MOCK_CAMERAS.find((c) => c.id === fullscreenCam)!;
+  function stopStream() {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    setStreaming(false);
+  }
+
+  useEffect(() => () => { streamRef.current?.getTracks().forEach((t) => t.stop()); }, []);
+
+  // IA
+  const onDetection = useCallback(async (dets: any[]) => {
+    if (!videoRef.current) return;
+    for (const det of dets) {
+      const result = await runDetectionPipeline({
+        organizationId: orgId,
+        cameraId:       camera.id,
+        detection:      det,
+        videoElement:   videoRef.current,
+      }).catch(() => null);
+      if (result) setSaved((n) => n + 1);
+    }
+  }, [orgId, camera.id]);
+
+  const { detections, modelReady, fps } = useYoloDetection(videoRef, {
+    mode:        aiEnabled && streaming ? "browser" : "off",
+    fps:         6,
+    confidence:  0.55,
+    voteFrames:  2,
+    onDetection,
+  });
+
+  return (
+    <div className={`group relative flex flex-col overflow-hidden rounded-lg border bg-slate-950 ${
+      camera.status === "online" ? "border-slate-700" : "border-slate-800"
+    }`}>
+      {/* Flux vidéo */}
+      <div className="relative flex-1 bg-black min-h-0">
+        {isPhone ? (
+          <>
+            <video ref={videoRef} autoPlay playsInline muted
+              className="h-full w-full object-cover" />
+            {streaming && <DetectionOverlay detections={detections} videoRef={videoRef} />}
+          </>
+        ) : (
+          <div className="flex h-full items-center justify-center text-xs text-slate-700 p-2 text-center">
+            {camera.connector === "rtsp" || camera.connector === "onvif"
+              ? `RTSP — serveur Python requis`
+              : `${camera.connector.toUpperCase()} — connecteur Cloud`}
+          </div>
+        )}
+
+        {/* Overlay offline */}
+        {camera.status === "offline" && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+            <span className="text-xs text-red-400">📵 Hors ligne</span>
+          </div>
+        )}
+
+        {/* Phone non démarré */}
+        {isPhone && !streaming && camera.status !== "offline" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60">
+            {error
+              ? <span className="text-xs text-red-400">{error}</span>
+              : <span className="text-xs text-slate-400">Flux arrêté</span>
+            }
+            <button onClick={startStream}
+              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium">
+              ▶ Démarrer
+            </button>
+          </div>
+        )}
+
+        {/* Badge LIVE */}
+        {streaming && (
+          <div className="absolute top-2 left-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
+            <span className="text-xs text-white">LIVE</span>
+          </div>
+        )}
+
+        {/* Badge IA */}
+        {aiEnabled && streaming && modelReady && (
+          <div className="absolute bottom-2 left-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-brand">
+            🤖 {fps}fps{saved > 0 ? ` · ${saved} ✓` : ""}
+          </div>
+        )}
+
+        {/* Contrôles hover */}
+        <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          {isPhone && streaming && (
+            <button onClick={stopStream}
+              className="rounded bg-black/60 px-1.5 py-0.5 text-xs text-slate-300 hover:text-white">
+              ⏹
+            </button>
+          )}
+          <button onClick={onFullscreen}
+            className="rounded bg-black/60 px-1.5 py-0.5 text-xs text-slate-300 hover:text-white">
+            ⛶
+          </button>
+          <Link href={`/cameras/${camera.id}`}
+            className="rounded bg-black/60 px-1.5 py-0.5 text-xs text-slate-300 hover:text-white">
+            ↗
+          </Link>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between border-t border-slate-800 px-2 py-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+            camera.status === "online" ? "bg-emerald-500" : "bg-slate-600"
+          }`} />
+          <span className="text-xs text-slate-300 truncate">{camera.name}</span>
+        </div>
+        <span className="text-xs text-slate-600 shrink-0 ml-1">
+          {camera.connector === "phone_webcam" ? "📱" : "📹"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Page principale ─────────────────────────────────────────────────────────
+export default function LiveMonitoringPage() {
+  const { currentOrg } = useOrganization();
+  const [cameras,  setCameras]  = useState<CameraDoc[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [gridId,   setGridId]   = useState("2x2");
+  const [aiOn,     setAiOn]     = useState(false);
+  const [fullCam,  setFullCam]  = useState<CameraDoc | null>(null);
+
+  // Charger les caméras en temps réel
+  useEffect(() => {
+    if (!currentOrg?.id) { setLoading(false); return; }
+    const unsub = onSnapshot(
+      collection(db, "organizations", currentOrg.id, "cameras"),
+      (snap) => {
+        setCameras(snap.docs.map((d) => ({ id:d.id, ...d.data() } as CameraDoc)));
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, [currentOrg?.id]);
+
+  const grid    = GRIDS.find((g) => g.id === gridId) ?? GRIDS[2];
+  const visible = cameras.slice(0, grid.max);
+  const online  = cameras.filter((c) => c.status === "online").length;
+
+  // ── Vue plein écran ──────────────────────────────────────────────────────
+  if (fullCam) {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col bg-black">
-        {/* Header */}
-        <div className="flex items-center justify-between bg-black/80 px-6 py-3">
+      <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        <div className="flex items-center justify-between bg-black/80 px-6 py-3 shrink-0">
           <div className="flex items-center gap-3">
             <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-            <span className="text-sm font-medium text-white">{cam.name}</span>
+            <span className="text-sm font-medium text-white">{fullCam.name}</span>
             <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-xs text-red-400">LIVE</span>
           </div>
-          <button
-            onClick={() => setFullscreenCam(null)}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-white"
-          >
-            ✕ Quitter plein écran
+          <button onClick={() => setFullCam(null)}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-white">
+            ✕ Quitter
           </button>
         </div>
-
-        {/* Stream */}
-        <div className="flex flex-1 items-center justify-center bg-slate-950">
-          <div className="relative h-full w-full">
-            <div className="flex h-full items-center justify-center text-slate-600 text-sm">
-              {/* En production : <video src={hlsUrl} autoPlay playsInline /> */}
-              Flux HLS — {cam.name}
-            </div>
-            {/* Overlay IA (Phase 5) */}
-            <div className="absolute bottom-4 left-4 rounded-lg bg-black/60 px-3 py-2 text-xs text-slate-300">
-              🤖 IA Detection — Phase 5
-            </div>
-          </div>
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center justify-center gap-6 bg-black/80 py-4">
-          <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-white">
-            <span>⏸</span><span className="text-xs">Pause</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-white">
-            <span>📷</span><span className="text-xs">Capture</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-white">
-            <span>⏺</span><span className="text-xs">Enregistrer</span>
-          </button>
-          <button
-            onClick={() => toggleMute(fullscreenCam)}
-            className={`flex flex-col items-center gap-1 ${mutedCams.has(fullscreenCam) ? "text-red-400" : "text-slate-400 hover:text-white"}`}
-          >
-            <span>{mutedCams.has(fullscreenCam) ? "🔇" : "🔊"}</span>
-            <span className="text-xs">Audio</span>
-          </button>
-          <div className="flex flex-col items-center gap-1">
-            <select
-              value={quality}
-              onChange={(e) => setQuality(e.target.value as Quality)}
-              className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300"
-            >
-              <option value="auto">Auto</option>
-              <option value="hd">HD 720p</option>
-              <option value="sd">SD 480p</option>
-              <option value="low">Low 240p</option>
-            </select>
-            <span className="text-xs text-slate-500">Qualité</span>
-          </div>
+        <div className="flex-1 min-h-0">
+          <CameraCell
+            camera={fullCam}
+            orgId={currentOrg?.id ?? ""}
+            isFullscreen={true}
+            onFullscreen={() => setFullCam(null)}
+            aiEnabled={aiOn}
+          />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
+    <div className="flex h-[calc(100vh-5rem)] flex-col">
       {/* Toolbar */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold text-white">Live Monitor</h1>
-        <div className="ml-2 flex items-center gap-1">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-          <span className="text-xs text-red-400 font-medium">LIVE</span>
+      <div className="mb-3 flex flex-wrap items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold text-white">Live Monitor</h1>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+            <span className="text-xs text-red-400 font-medium">LIVE</span>
+          </div>
+          <span className="text-xs text-slate-500">
+            {online}/{cameras.length} caméra{cameras.length !== 1 ? "s" : ""} en ligne
+          </span>
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Sélecteur de grille */}
-          <div className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900 p-1">
-            {GRID_LAYOUTS.map((l) => (
-              <button
-                key={l.id}
-                onClick={() => setLayoutId(l.id)}
-                className={`rounded px-2.5 py-1 text-xs transition-colors ${
-                  layoutId === l.id
-                    ? "bg-brand text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                {l.label}
+          {/* Toggle IA */}
+          <button onClick={() => setAiOn(!aiOn)}
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+              aiOn ? "border-brand bg-brand/10 text-brand" : "border-slate-700 text-slate-400"
+            }`}>
+            🤖 IA {aiOn ? "ON" : "OFF"}
+          </button>
+
+          {/* Sélecteur grille */}
+          <div className="flex items-center gap-0.5 rounded-lg border border-slate-800 bg-slate-900 p-1">
+            {GRIDS.map((g) => (
+              <button key={g.id} onClick={() => setGridId(g.id)}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  gridId === g.id ? "bg-brand text-white" : "text-slate-400 hover:text-white"
+                }`}>
+                {g.label}
               </button>
             ))}
           </div>
-
-          {/* Qualité globale */}
-          <select
-            value={quality}
-            onChange={(e) => setQuality(e.target.value as Quality)}
-            className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-xs text-slate-300"
-          >
-            <option value="auto">Auto</option>
-            <option value="hd">HD 720p</option>
-            <option value="sd">SD 480p</option>
-            <option value="low">Low 240p</option>
-          </select>
         </div>
       </div>
 
+      {/* États */}
+      {loading && (
+        <div className="flex flex-1 items-center justify-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+          <span className="text-sm text-slate-400">Chargement des caméras...</span>
+        </div>
+      )}
+
+      {!loading && !currentOrg && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4">
+          <span className="text-4xl">📺</span>
+          <p className="text-slate-400">Aucune organisation configurée.</p>
+          <Link href="/cameras/phone" className="rounded-lg bg-brand px-5 py-2.5 text-sm font-medium">
+            → Configurer via Caméra Phone
+          </Link>
+        </div>
+      )}
+
+      {!loading && currentOrg && cameras.length === 0 && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-slate-700">
+          <span className="text-4xl">📷</span>
+          <p className="text-slate-400">Aucune caméra dans ton organisation.</p>
+          <div className="flex gap-3">
+            <Link href="/cameras/add" className="rounded-lg bg-brand px-5 py-2.5 text-sm font-medium">
+              + Ajouter une caméra
+            </Link>
+            <Link href="/cameras/phone" className="rounded-lg border border-slate-700 px-5 py-2.5 text-sm text-slate-300">
+              📱 Caméra téléphone
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* Grille de caméras */}
-      <div
-        className="flex-1 grid gap-1.5"
-        style={{ gridTemplateColumns: `repeat(${layout.cols}, 1fr)` }}
-      >
-        {visibleCameras.map((cam) => (
-          <div
-            key={cam.id}
-            className="group relative flex flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-950"
-          >
-            {/* Stream */}
-            <div className="flex flex-1 items-center justify-center bg-black text-xs text-slate-700">
-              {cam.status === "offline"
-                ? "📵 Hors ligne"
-                : `Flux HLS — ${cam.name}`
-              }
-              {/* En production : <video src={hlsUrl} autoPlay playsInline muted={mutedCams.has(cam.id)} /> */}
+      {!loading && cameras.length > 0 && (
+        <div className="flex-1 min-h-0"
+          style={{ display:"grid", gridTemplateColumns:`repeat(${grid.cols}, 1fr)`, gap:"6px" }}>
+          {visible.map((cam) => (
+            <CameraCell
+              key={cam.id}
+              camera={cam}
+              orgId={currentOrg?.id ?? ""}
+              isFullscreen={false}
+              onFullscreen={() => setFullCam(cam)}
+              aiEnabled={aiOn}
+            />
+          ))}
+          {/* Cases vides */}
+          {Array.from({ length: Math.max(0, grid.max - visible.length) }).map((_, i) => (
+            <div key={`empty-${i}`}
+              className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 bg-slate-950 gap-2">
+              <span className="text-slate-700 text-xs">Slot vide</span>
+              <Link href="/cameras/add" className="text-xs text-brand hover:underline">+ Ajouter</Link>
             </div>
-
-            {/* Overlay header */}
-            <div className="absolute top-0 left-0 right-0 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent px-2 py-1.5 opacity-0 transition-opacity group-hover:opacity-100">
-              <div className="flex items-center gap-1.5">
-                {cam.status === "live" && (
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
-                )}
-                <span className="text-xs text-white">{cam.name}</span>
-              </div>
-              <button
-                onClick={() => setFullscreenCam(cam.id)}
-                className="text-slate-400 hover:text-white text-xs"
-                title="Plein écran"
-              >
-                ⛶
-              </button>
-            </div>
-
-            {/* Overlay controls (bas) */}
-            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 opacity-0 transition-opacity group-hover:opacity-100">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => toggleMute(cam.id)}
-                  className={`text-xs ${mutedCams.has(cam.id) ? "text-red-400" : "text-slate-300 hover:text-white"}`}
-                >
-                  {mutedCams.has(cam.id) ? "🔇" : "🔊"}
-                </button>
-                <button className="text-xs text-slate-300 hover:text-white">📷</button>
-                <button className="text-xs text-slate-300 hover:text-white">⏺</button>
-              </div>
-              {/* Badge IA Phase 5 */}
-              <span className="rounded bg-brand/20 px-1.5 py-0.5 text-xs text-brand">🤖 IA</span>
-            </div>
-
-            {/* Badge statut */}
-            {cam.status === "offline" && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                <span className="rounded-lg bg-red-900/40 px-3 py-1.5 text-xs text-red-400">
-                  Caméra hors ligne
-                </span>
-              </div>
-            )}
-          </div>
-        ))}
-
-        {/* Cases vides si moins de caméras que la grille */}
-        {Array.from({ length: Math.max(0, layout.maxCameras - visibleCameras.length) }).map((_, i) => (
-          <div
-            key={`empty-${i}`}
-            className="flex items-center justify-center rounded-lg border border-dashed border-slate-800 bg-slate-950 text-xs text-slate-700"
-          >
-            + Ajouter une caméra
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
