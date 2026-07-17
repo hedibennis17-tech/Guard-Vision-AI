@@ -94,22 +94,25 @@ export default function PhoneCameraPage() {
           setTotalSaved((n) => n + 1);
           setPipeLog(`✅ ${det.label} → Firestore · snapshot${result.snapshotUrl ? " ✓" : " (Storage requis)"}`);
 
-          // Lancer un clip vidéo de 12s si c'est une détection importante
-          if (result.eventId && streamRef.current &&
-              (det.severity === "critical" || det.severity === "warning") &&
-              !isRecording) {
+          // Lancer un clip vidéo — pour TOUTES les détections sauvegardées
+          // Fix: utiliser videoRef.current.srcObject (pas streamRef) comme useMediaRecorder
+          if (result.eventId && result.eventId !== "error" &&
+              videoRef.current?.srcObject && !isRecording) {
+            setPipeLog(`🎬 Clip démarré pour "${det.label}"...`);
             await markClipStatus(orgId, result.eventId, "recording");
-            const clip = await startClip({ organizationId: orgId, cameraId: camId, eventId: result.eventId, durationSec: 12 });
+            const clip = await startClip({
+              organizationId: orgId,
+              cameraId:       camId,
+              eventId:        result.eventId,
+              durationSec:    12,
+            });
             if (clip) {
-              if (clip.isLocal) {
-                await markClipStatus(orgId, result.eventId, "local" as any);
-                setPipeLog(`⚠️ Clip local (${clip.sizeKb}Ko) — Storage non configuré. Visible uniquement dans cet onglet.`);
-              } else {
-                setPipeLog(`✅ Clip ${clip.durationSeconds}s (${clip.sizeKb}Ko) → Firebase Storage`);
-              }
+              setPipeLog(clip.isLocal
+                ? `⚠️ Clip local ${clip.sizeKb}Ko — Storage: ${clip.storageError ?? "erreur"}`
+                : `✅ Clip ${clip.durationSeconds}s · ${clip.sizeKb}Ko → Firebase Storage`);
             } else {
               await markClipStatus(orgId, result.eventId, "failed");
-              setPipeLog(`❌ Clip échoué — vérifiez la console (F12) pour le détail`);
+              setPipeLog(`❌ Clip échoué — ouvre F12 pour voir l'erreur exacte`);
             }
           }
         }

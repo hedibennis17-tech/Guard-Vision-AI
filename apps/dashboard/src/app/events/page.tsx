@@ -434,3 +434,7 @@ export default function EventsPage() {
     </div>
   );
 }
+
+// Note: Les clips vidéo sont enregistrés automatiquement depuis /cameras/phone
+// quand l'IA détecte un objet. Le lecteur vidéo apparaît dès que videoClipUrl
+// est écrit dans Firestore (onSnapshot met à jour en temps réel).
