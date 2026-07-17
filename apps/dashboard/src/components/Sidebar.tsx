@@ -1,4 +1,5 @@
 "use client";
+import { useAuth } from "@/lib/context/AuthContext";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -22,6 +23,8 @@ const NAV_ITEMS = [
 ];
 
 export function Sidebar() {
+  const { user, profile, signOut, isSuperAdmin } = useAuth();
+
   const pathname = usePathname();
 
   return (
@@ -53,6 +56,31 @@ export function Sidebar() {
           );
         })}
       </nav>
-    </aside>
+    
+      {/* Footer utilisateur */}
+      {user && (
+        <div className="border-t border-slate-800 p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">
+              {(profile?.displayName ?? user.email ?? "U")[0].toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-white truncate">{profile?.displayName ?? "Utilisateur"}</p>
+              <p className="text-xs text-slate-500 truncate">{user.email}</p>
+            </div>
+          </div>
+          {isSuperAdmin && (
+            <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-amber-900/20 border border-amber-800/40 px-2 py-1">
+              <span className="text-sm">👑</span>
+              <span className="text-xs font-medium text-amber-400">Super Admin</span>
+            </div>
+          )}
+          <button onClick={() => signOut()}
+            className="w-full rounded-lg border border-slate-700 py-1.5 text-xs text-slate-400 hover:border-red-800 hover:text-red-400 transition-colors">
+            Déconnexion
+          </button>
+        </div>
+      )}
+</aside>
   );
 }
