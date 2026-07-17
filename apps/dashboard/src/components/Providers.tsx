@@ -1,4 +1,5 @@
 "use client";
+import { AuthProvider } from "@/lib/context/AuthContext";
 
 import { type ReactNode } from "react";
 import { OrganizationProvider } from "@/lib/context/OrganizationContext";
@@ -9,8 +10,10 @@ import { OrganizationProvider } from "@/lib/context/OrganizationContext";
  */
 export function Providers({ children }: { children: ReactNode }) {
   return (
-    <OrganizationProvider>
+    <AuthProvider>
+      <OrganizationProvider>
       {children}
     </OrganizationProvider>
+    </AuthProvider>
   );
 }

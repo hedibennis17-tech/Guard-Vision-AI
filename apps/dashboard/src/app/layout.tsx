@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Sidebar } from "@/components/Sidebar";
 import { Providers } from "@/components/Providers";
 
 export const metadata: Metadata = {
-  title: "Vision Guard | Dashboard",
-  description: "Plateforme AI Vision — Dashboard Administrateur",
+  title: "Vision Guard AI",
+  description: "Plateforme de surveillance IA",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -13,10 +12,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="fr">
       <body>
         <Providers>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <main className="flex-1 overflow-auto p-8">{children}</main>
-          </div>
+          {children}
         </Providers>
       </body>
     </html>
