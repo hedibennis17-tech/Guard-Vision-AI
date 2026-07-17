@@ -95,14 +95,16 @@ export default function PhoneCameraPage() {
               !isRecording) {
             await markClipStatus(orgId, result.eventId, "recording");
             const clip = await startClip({ organizationId: orgId, cameraId: camId, eventId: result.eventId, durationSec: 12 });
-            if (clip?.videoClipUrl) {
-              await updateEventWithClip(orgId, result.eventId, clip.videoClipUrl);
-              await markClipStatus(orgId, result.eventId, "ready");
-              setPipeLog(`✅ Clip ${clip.durationSeconds}s (${clip.sizeKb}kb) → Firebase`);
+            if (clip) {
+              if (clip.isLocal) {
+                await markClipStatus(orgId, result.eventId, "local" as any);
+                setPipeLog(`⚠️ Clip local (${clip.sizeKb}Ko) — Storage non configuré. Visible uniquement dans cet onglet.`);
+              } else {
+                setPipeLog(`✅ Clip ${clip.durationSeconds}s (${clip.sizeKb}Ko) → Firebase Storage`);
+              }
             } else {
               await markClipStatus(orgId, result.eventId, "failed");
-              setPipeLog(`⚠️ Clip échoué — Firebase Storage non configuré ou navigateur incompatible`);
-              console.warn("[phone/page] startClip returned null — Storage may be blocked");
+              setPipeLog(`❌ Clip échoué — vérifiez la console (F12) pour le détail`);
             }
           }
         }

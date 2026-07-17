@@ -23,7 +23,7 @@ interface EventDoc {
   durationSeconds: number;
   thumbnailUrl?:   string;
   videoClipUrl?:   string;
-  clipStatus?:     "recording" | "ready" | "failed";
+  clipStatus?:     "recording" | "ready" | "local" | "failed";
   acknowledged:    boolean;
   createdAt:       string;
   updatedAt:       string;
@@ -45,13 +45,13 @@ const SEV = {
 };
 
 // ── Lecteur vidéo ────────────────────────────────────────────────────────────
-function VideoPlayer({ url, thumbnail, clipStatus }: { url?: string; thumbnail?: string; clipStatus?: "recording" | "ready" | "failed" }) {
+function VideoPlayer({ url, thumbnail, clipStatus }: { url?: string; thumbnail?: string; clipStatus?: "recording" | "ready" | "local" | "failed" }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
 
   if (!url) {
-    const isRecording = clipStatus === "recording";
-    const isFailed    = clipStatus === "failed";
+    const isRecordingNow = clipStatus === "recording";
+    const isFailed       = clipStatus === "failed";
 
     return (
       <div className="relative aspect-video overflow-hidden rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center">
@@ -59,7 +59,7 @@ function VideoPlayer({ url, thumbnail, clipStatus }: { url?: string; thumbnail?:
           <img src={thumbnail} alt="snapshot" className="h-full w-full object-cover opacity-60" />
         ) : null}
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60">
-          {isRecording ? (
+          {isRecordingNow ? (
             <>
               <span className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
@@ -72,7 +72,7 @@ function VideoPlayer({ url, thumbnail, clipStatus }: { url?: string; thumbnail?:
             <>
               <span className="text-3xl">⚠️</span>
               <p className="text-xs text-amber-400">Clip non disponible</p>
-              <p className="text-xs text-slate-500">Firebase Storage non configuré</p>
+              <p className="text-xs text-slate-500">Vérifiez la console (F12) pour le détail</p>
             </>
           ) : (
             <>
@@ -388,11 +388,6 @@ export default function EventsPage() {
 
               {/* Liens */}
               <div className="flex gap-2">
-                <a href={`https://console.firebase.google.com/project/ai-guard-vision-8ef41/firestore/data/organizations/${currentOrg?.id}/events/${selected.id}`}
-                  target="_blank"
-                  className="flex-1 rounded-lg border border-slate-700 py-2 text-center text-xs text-slate-400 hover:text-brand hover:border-brand">
-                  Voir dans Firestore ↗
-                </a>
                 <Link href={`/cameras/${selected.cameraId}`}
                   className="flex-1 rounded-lg border border-slate-700 py-2 text-center text-xs text-slate-400 hover:text-brand hover:border-brand">
                   Voir la caméra →
