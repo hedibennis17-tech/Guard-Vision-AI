@@ -9,6 +9,7 @@ import { runDetectionPipeline, updateEventWithClip, markClipStatus } from "@/lib
 import { quickSetup, createCameraDirectly, checkSetup } from "@/lib/services/setupService";
 import { CATEGORY_LABELS } from "@/lib/detection/classMap";
 import { auth } from "@/lib/firebase/client";
+import { CameraLocationPicker } from "@/components/CameraLocationPicker";
 import { useActiveModules } from "@/lib/orchestrator/useActiveModules";
 
 interface SavedItem {
@@ -31,6 +32,9 @@ export default function PhoneCameraPage() {
   const [pipeLogs,    setPipeLogs]    = useState<string[]>([]);
   const [totalSaved,  setTotalSaved]  = useState(0);
   const [orgIdState,  setOrgIdState]  = useState<string|undefined>(undefined);
+  const [showPicker,  setShowPicker]  = useState(false);
+  const [locationSet, setLocationSet] = useState(false);
+  const [camLabel,    setCamLabel]    = useState("Caméra téléphone");
   const { modules: activeModules }    = useActiveModules(orgIdState);
 
   const { startClip, stopClip, recording: isRecording, lastLog } = useMediaRecorder(videoRef);
@@ -54,17 +58,11 @@ export default function PhoneCameraPage() {
         orgIdRef.current = orgId;
         setOrgIdState(orgId);
         setPipeLog("Création de la caméra...");
-        const camId = await createCameraDirectly({
-          organizationId: orgId,
-          name:    "Caméra téléphone",
-          brand:   "WebRTC",
-          connector: "phone_webcam",
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        });
-        camIdRef.current = camId;
-        setOrgIdState(orgIdRef.current ?? undefined);
-        setPipeLog(`✅ Prêt — org: ${orgId.slice(0,8)}... cam: ${camId.slice(0,8)}...`);
-        setReady(true);
+        // Ne pas créer la caméra tout de suite — montrer le picker d'emplacement
+        orgIdRef.current = orgId;
+        setOrgIdState(orgId);
+        setShowPicker(true);  // Le picker appellera createCameraDirectly après confirmation
+        return;  // Sortir de useEffect, continuer après le picker
       } catch (err: any) {
         setPipeLog(`❌ ${err.message}`);
       }
@@ -139,6 +137,30 @@ export default function PhoneCameraPage() {
         onDetection: handleDetection,
       });
 
+  async function handleLocationConfirm(val: { cameraName:string; cameraId:string; }) {
+    setShowPicker(false);
+    setCamLabel(val.cameraName);
+    const orgId = orgIdRef.current;
+    if (!orgId) return;
+    try {
+      setPipeLog(`📍 Création caméra "${val.cameraName}"...`);
+      const camId = await createCameraDirectly({
+        organizationId: orgId,
+        name:    val.cameraName,
+        brand:   "WebRTC",
+        connector: "phone_webcam",
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      camIdRef.current = camId;
+      setOrgIdState(orgId);
+      setLocationSet(true);
+      setReady(true);
+      setPipeLog(`✅ Prêt — ${val.cameraName} · ${camId.slice(0,8)}...`);
+    } catch (err: any) {
+      setPipeLog(`❌ ${err.message}`);
+    }
+  }
+
   async function startCamera(face: "user"|"environment" = facing) {
     setStreamError(null);
     try {
@@ -163,6 +185,17 @@ export default function PhoneCameraPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
+      {/* Picker d'emplacement */}
+      {showPicker && (
+        <CameraLocationPicker
+          onConfirm={(val) => handleLocationConfirm(val)}
+          onCancel={() => {
+            setShowPicker(false);
+            setReady(true);
+            setPipeLog("✅ Caméra prête (sans emplacement défini)");
+          }}
+        />
+      )}
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
         <Link href="/cameras" className="text-slate-400 hover:text-white">← Caméras</Link>

@@ -160,19 +160,22 @@ export default function EventsPage() {
           }
         }
 
-        // Trier: org par défaut en premier, diag en dernier
-        myOrgs.sort((a,b)=>{
-          if (a.id===defaultOrgId) return -1;
-          if (b.id===defaultOrgId) return 1;
-          const aD = a.id.includes("diag")||a.name.includes("Diagnostic")||a.name.includes("Test");
-          const bD = b.id.includes("diag")||b.name.includes("Diagnostic")||b.name.includes("Test");
-          return aD===bD ? 0 : aD ? 1 : -1;
-        });
+        // Filtrer les orgs de diagnostic (les cacher complètement)
+        const realOrgs = myOrgs.filter(o =>
+          !o.id.includes("diag") &&
+          !o.name.toLowerCase().includes("diagnostic") &&
+          !o.name.toLowerCase().includes("test diagnostic") &&
+          !o.name.toLowerCase().includes("test")
+        );
+        
+        // Si aucune org réelle, garder la première quand même
+        const orgsToShow = realOrgs.length > 0 ? realOrgs : myOrgs.slice(0,1);
+        
+        // Trier: defaultOrg en premier
+        orgsToShow.sort((a,b) => a.id===defaultOrgId ? -1 : b.id===defaultOrgId ? 1 : 0);
 
-        setOrgs(myOrgs);
-        // Sélectionner l'org non-diag avec le plus d'events
-        const realOrg = myOrgs.find(o=>!o.id.includes("diag")&&!o.name.includes("Diagnostic")&&!o.name.includes("Test"));
-        setOrgId(realOrg?.id ?? myOrgs[0]?.id ?? null);
+        setOrgs(orgsToShow);
+        setOrgId(orgsToShow[0]?.id ?? null);
       } catch(e){ console.error(e); }
     })();
   },[]);
