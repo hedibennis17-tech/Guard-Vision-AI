@@ -27,43 +27,52 @@ const OrganizationContext = createContext<OrgContext>({
 });
 
 export function OrganizationProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  // `authLoading` est CRUCIAL : au rechargement de la page, Firebase met un
+  // court instant à restaurer la session. Pendant ce temps `user` vaut `null`
+  // SANS que l'utilisateur soit réellement déconnecté. Si on traite ce `null`
+  // transitoire comme "pas d'utilisateur", on conclut à tort "aucune donnée"
+  // et tout disparaît après un refresh.
+  const { user, loading: authLoading } = useAuth();
   const [organizations, setOrganizations] = useState<OrganizationDoc[]>([]);
   const [currentOrgId,  setCurrentOrgId]  = useState<string | null>(null);
   const [subscription,  setSubscription]  = useState<SubscriptionDoc | null>(null);
   const [membership,    setMembership]    = useState<MembershipDoc | null>(null);
   const [loading,       setLoading]       = useState(true);
 
-  // Écouter les organisations dont l'utilisateur est membre
+  // Charger l'organisation de l'utilisateur courant
   useEffect(() => {
-    if (!user) { setOrganizations([]); setLoading(false); return; }
+    // Tant que l'auth n'est pas résolue, on RESTE en chargement et on ne
+    // touche à rien : impossible de savoir encore s'il y a un utilisateur.
+    if (authLoading) { setLoading(true); return; }
 
-    // Écoute les memberships actifs de cet utilisateur
-    // (collectionGroup query — nécessite l'index Firestore correspondant)
-    const unsubs: Unsubscribe[] = [];
+    // Auth résolue, réellement aucun utilisateur : on peut vider proprement.
+    if (!user) { setOrganizations([]); setCurrentOrgId(null); setLoading(false); return; }
 
-    const memberQuery = query(
-      collection(db, "organizations"),
-      // Note: en production, on requête via collectionGroup("members")
-      // Pour Phase 1, on charge l'org du defaultOrganizationId de l'utilisateur
-    );
+    // Utilisateur présent : on repart en chargement le temps de résoudre l'org.
+    let cancelled = false;
+    setLoading(true);
 
-    // Charger depuis le profil utilisateur pour commencer
     getDoc(doc(db, "users", user.uid)).then(async (userSnap) => {
       const userData = userSnap.data();
-      if (!userData?.defaultOrganizationId) { setLoading(false); return; }
+      if (!userData?.defaultOrganizationId) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
 
       const orgSnap = await getDoc(doc(db, "organizations", userData.defaultOrganizationId));
-      if (orgSnap.exists()) {
+      if (!cancelled && orgSnap.exists()) {
         const orgData = { id: orgSnap.id, ...orgSnap.data() } as OrganizationDoc;
         setOrganizations([orgData]);
         setCurrentOrgId(orgData.id);
       }
-      setLoading(false);
-    }).catch(() => setLoading(false));
+      if (!cancelled) setLoading(false);
+    }).catch((err) => {
+      console.error("[v0] OrganizationContext load error:", err);
+      if (!cancelled) setLoading(false);
+    });
 
-    return () => unsubs.forEach((u) => u());
-  }, [user]);
+    return () => { cancelled = true; };
+  }, [user, authLoading]);
 
   // Écouter l'abonnement et le membership de l'org courante
   useEffect(() => {
