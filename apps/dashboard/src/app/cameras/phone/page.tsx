@@ -5,7 +5,7 @@ import Link from "next/link";
 import { DetectionOverlay } from "@/components/DetectionOverlay";
 import { useYoloDetection, type Detection, type DetectionMode } from "@/lib/hooks/useYoloDetection";
 import { useMediaRecorder } from "@/lib/hooks/useMediaRecorder";
-import { runDetectionPipeline, updateEventWithClip } from "@/lib/services/pipelineService";
+import { runDetectionPipeline, updateEventWithClip, markClipStatus } from "@/lib/services/pipelineService";
 import { quickSetup, createCameraDirectly, checkSetup } from "@/lib/services/setupService";
 import { CATEGORY_LABELS } from "@/lib/detection/classMap";
 import { auth } from "@/lib/firebase/client";
@@ -93,10 +93,16 @@ export default function PhoneCameraPage() {
           if (result.eventId && streamRef.current &&
               (det.severity === "critical" || det.severity === "warning") &&
               !isRecording) {
+            await markClipStatus(orgId, result.eventId, "recording");
             const clip = await startClip({ organizationId: orgId, cameraId: camId, eventId: result.eventId, durationSec: 12 });
-            if (clip?.videoClipUrl && result.eventId) {
+            if (clip?.videoClipUrl) {
               await updateEventWithClip(orgId, result.eventId, clip.videoClipUrl);
-              setPipeLog(`✅ Clip vidéo ${clip.durationSeconds}s (${clip.sizeKb}kb) → Firebase`);
+              await markClipStatus(orgId, result.eventId, "ready");
+              setPipeLog(`✅ Clip ${clip.durationSeconds}s (${clip.sizeKb}kb) → Firebase`);
+            } else {
+              await markClipStatus(orgId, result.eventId, "failed");
+              setPipeLog(`⚠️ Clip échoué — Firebase Storage non configuré ou navigateur incompatible`);
+              console.warn("[phone/page] startClip returned null — Storage may be blocked");
             }
           }
         }

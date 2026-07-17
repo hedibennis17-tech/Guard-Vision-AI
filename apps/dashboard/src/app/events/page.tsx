@@ -23,6 +23,7 @@ interface EventDoc {
   durationSeconds: number;
   thumbnailUrl?:   string;
   videoClipUrl?:   string;
+  clipStatus?:     "recording" | "ready" | "failed";
   acknowledged:    boolean;
   createdAt:       string;
   updatedAt:       string;
@@ -44,24 +45,44 @@ const SEV = {
 };
 
 // ── Lecteur vidéo ────────────────────────────────────────────────────────────
-function VideoPlayer({ url, thumbnail }: { url?: string; thumbnail?: string }) {
+function VideoPlayer({ url, thumbnail, clipStatus }: { url?: string; thumbnail?: string; clipStatus?: "recording" | "ready" | "failed" }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
 
   if (!url) {
+    const isRecording = clipStatus === "recording";
+    const isFailed    = clipStatus === "failed";
+
     return (
       <div className="relative aspect-video overflow-hidden rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center">
         {thumbnail ? (
           <img src={thumbnail} alt="snapshot" className="h-full w-full object-cover opacity-60" />
         ) : null}
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60">
-          <span className="text-4xl">🎬</span>
-          <p className="text-xs text-slate-400">
-            Clip en cours d'enregistrement...
-          </p>
-          <p className="text-xs text-slate-600">
-            Activez l'IA sur <Link href="/cameras/phone" className="text-brand">Caméra Phone</Link> pour générer des clips
-          </p>
+          {isRecording ? (
+            <>
+              <span className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+                <span className="text-sm font-medium text-red-400">REC</span>
+              </span>
+              <p className="text-xs text-slate-300">Clip en cours d&apos;enregistrement...</p>
+              <p className="text-xs text-slate-500">12 secondes · Firebase Storage</p>
+            </>
+          ) : isFailed ? (
+            <>
+              <span className="text-3xl">⚠️</span>
+              <p className="text-xs text-amber-400">Clip non disponible</p>
+              <p className="text-xs text-slate-500">Firebase Storage non configuré</p>
+            </>
+          ) : (
+            <>
+              <span className="text-3xl">📷</span>
+              <p className="text-xs text-slate-400">Pas de clip pour cet événement</p>
+              <p className="text-xs text-slate-600">
+                Activez l&apos;IA sur <Link href="/cameras/phone" className="text-brand underline">Caméra Phone</Link> pour générer des clips
+              </p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -316,7 +337,7 @@ export default function EventsPage() {
               </div>
 
               {/* Lecteur vidéo */}
-              <VideoPlayer url={selected.videoClipUrl} thumbnail={selected.thumbnailUrl} />
+              <VideoPlayer url={selected.videoClipUrl} thumbnail={selected.thumbnailUrl} clipStatus={selected.clipStatus} />
 
               {/* Infos + Timeline */}
               <div className="grid grid-cols-2 gap-4">

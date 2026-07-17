@@ -56,7 +56,8 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
             { videoClipUrl, updatedAt: new Date().toISOString() });
           setUploading(false);
           resolve({ videoClipUrl, durationSeconds: durationSec, sizeKb: Math.round(blob.size / 1024) });
-        } catch {
+        } catch (err) {
+          console.error("[useMediaRecorder] Upload/Firestore failed:", err);
           setUploading(false);
           resolve(null);
         }

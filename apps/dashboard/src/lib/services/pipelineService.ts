@@ -158,6 +158,25 @@ function computeSeverity(cls:string, count:number): "info"|"warning"|"critical" 
 }
 
 /**
+ * Marque le statut du clip sur un event (recording | ready | failed).
+ * Appelé depuis la page caméra avant/après startClip.
+ */
+export async function markClipStatus(
+  organizationId: string,
+  eventId:        string,
+  status:         "recording" | "ready" | "failed",
+): Promise<void> {
+  try {
+    await updateDoc(
+      doc(db, "organizations", organizationId, "events", eventId),
+      { clipStatus: status, updatedAt: new Date().toISOString() },
+    );
+  } catch (err) {
+    console.warn("[markClipStatus] failed:", err);
+  }
+}
+
+/**
  * Met à jour un EventDoc avec l'URL du clip vidéo.
  * Appelé par useMediaRecorder après upload dans Storage.
  */
