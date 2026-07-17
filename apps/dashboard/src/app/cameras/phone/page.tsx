@@ -93,10 +93,15 @@ export default function PhoneCameraPage() {
           if (result.eventId && streamRef.current &&
               (det.severity === "critical" || det.severity === "warning") &&
               !isRecording) {
-            const clip = await startClip(streamRef.current, orgId, camId, result.eventId, 6);
-            if (clip?.url && result.eventId) {
-              await updateEventWithClip(orgId, result.eventId, clip.url);
-              setPipeLog(`✅ Clip vidéo ${clip.durationS}s (${clip.sizeKb}kb) → Firebase`);
+            const clip = await startClip({
+              organizationId: orgId,
+              cameraId: camId,
+              eventId: result.eventId,
+              durationSec: 6
+            });
+            if (clip?.videoClipUrl && result.eventId) {
+              await updateEventWithClip(orgId, result.eventId, clip.videoClipUrl);
+              setPipeLog(`✅ Clip vidéo ${clip.durationSeconds}s (${clip.sizeKb}kb) → Firebase`);
             }
           }
         }
