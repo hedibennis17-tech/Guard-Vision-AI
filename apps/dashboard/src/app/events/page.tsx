@@ -381,17 +381,33 @@ export default function EventsPage() {
                   <div className="space-y-2 text-xs">
                     {[
                       ["Sévérité",    SEV[selected.severity]?.label ?? selected.severity],
+                      ["Catégorie",   CATEGORY_LABELS[selected.category]?.label ?? selected.category],
+                      ["Type détecté",selected.primaryType],
                       ["Durée",       `${selected.durationSeconds}s`],
-                      ["Détections",  selected.detectionIds?.length ?? 1],
+                      ["Détections",  `${selected.detectionIds?.length ?? 1}`],
                       ["Clip vidéo",  selected.videoClipUrl ? "✅ Disponible" : "⏳ En attente"],
                       ["Snapshot",    selected.thumbnailUrl ? "✅ Disponible" : "—"],
                       ["Statut",      selected.acknowledged ? "✅ Acquitté" : "🔴 Ouvert"],
+                      ["Créé",        new Date(selected.createdAt).toLocaleTimeString("fr-CA")],
+                      ["ID",          selected.id.slice(0,14) + "..."],
                     ].map(([l, v]) => (
-                      <div key={l as string} className="flex justify-between">
-                        <span className="text-slate-500">{l}</span>
-                        <span className="text-slate-300">{v}</span>
+                      <div key={l as string} className="flex justify-between gap-2">
+                        <span className="text-slate-500 shrink-0">{l}</span>
+                        <span className="text-slate-300 text-right">{v}</span>
                       </div>
                     ))}
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-slate-800 space-y-1.5">
+                    {selected.videoClipUrl && (
+                      <a href={selected.videoClipUrl} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-slate-700 py-2 text-xs text-slate-300 hover:border-brand hover:text-brand">
+                        ⬇️ Télécharger le clip
+                      </a>
+                    )}
+                    <Link href="/settings/storage"
+                      className="flex items-center justify-center gap-1 w-full rounded-lg border border-slate-700 py-1.5 text-xs text-slate-500 hover:text-slate-300">
+                      ⚙️ Config stockage clips
+                    </Link>
                   </div>
                 </div>
 
