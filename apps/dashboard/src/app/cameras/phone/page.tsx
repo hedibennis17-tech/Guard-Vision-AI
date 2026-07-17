@@ -27,6 +27,7 @@ export default function PhoneCameraPage() {
   const [streamError, setStreamError] = useState<string | null>(null);
   const [saved,       setSaved]       = useState<SavedItem[]>([]);
   const [pipeLog,     setPipeLog]     = useState("En attente...");
+  const [pipeLogs,    setPipeLogs]    = useState<string[]>([]);
   const [totalSaved,  setTotalSaved]  = useState(0);
 
   const { startClip, stopClip, recording: isRecording, lastLog } = useMediaRecorder(videoRef);
@@ -92,7 +93,9 @@ export default function PhoneCameraPage() {
             snapshotUrl: result.snapshotUrl ?? undefined,
           }, ...prev].slice(0, 30));
           setTotalSaved((n) => n + 1);
-          setPipeLog(`✅ ${det.label} → Firestore · snapshot${result.snapshotUrl ? " ✓" : " (Storage requis)"}`);
+          const logMsg = `✅ ${det.label} → Firestore · snapshot${result.snapshotUrl ? " ✓" : " (Storage requis)"}`;
+          setPipeLog(logMsg);
+          setPipeLogs(prev => [new Date().toLocaleTimeString("fr-CA") + " " + logMsg, ...prev].slice(0, 15));
 
           // Lancer un clip vidéo — pour TOUTES les détections sauvegardées
           // Fix: utiliser videoRef.current.srcObject (pas streamRef) comme useMediaRecorder
@@ -221,9 +224,25 @@ export default function PhoneCameraPage() {
                 pipeLog.startsWith("✅") ? "border-emerald-800 bg-emerald-900/10 text-emerald-400"
                 : pipeLog.startsWith("❌") ? "border-red-800 bg-red-900/10 text-red-400"
                 : pipeLog.startsWith("⚠️") ? "border-amber-800 bg-amber-900/10 text-amber-400"
+                : pipeLog.startsWith("🎬") ? "border-brand/50 bg-brand/5 text-brand"
                 : "border-slate-800 bg-slate-900 text-slate-400"}`}>
                 {pipeLog}
               </div>
+
+              {/* Historique persistant */}
+              {pipeLogs.length > 0 && (
+                <div className="rounded-lg border border-slate-800 bg-slate-950 p-2 max-h-28 overflow-y-auto space-y-0.5">
+                  {pipeLogs.map((log, i) => (
+                    <p key={i} className={`text-xs font-mono ${
+                      log.includes("✅") ? "text-emerald-500"
+                      : log.includes("❌") ? "text-red-400"
+                      : log.includes("⚠️") ? "text-amber-400"
+                      : log.includes("🎬") ? "text-brand"
+                      : "text-slate-600"
+                    }`}>{log}</p>
+                  ))}
+                </div>
+              )}
               <button 
                 onClick={async () => {
                   if (!orgIdRef.current || !camIdRef.current) {

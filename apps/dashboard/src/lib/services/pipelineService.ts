@@ -4,7 +4,7 @@
  */
 
 import {
-  doc, setDoc, collection, query, where,
+  doc, setDoc, collection, query, where, orderBy, limit,
   getDocs, updateDoc, arrayUnion,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -73,23 +73,31 @@ export async function runDetectionPipeline(input: {
     detectedAt: now, createdAt: now,
   });
 
-  // 4. Event
+  // 4. Event — query simple (1 seul where) pour éviter l'index composite
   let eventId: string;
   const windowStart = new Date(Date.now() - 30_000).toISOString();
   try {
+    // Query simple: seulement cameraId pour éviter l'index composite
     const evSnap = await getDocs(query(
       collection(db, "organizations", organizationId, "events"),
-      where("cameraId",    "==", cameraId),
-      where("primaryType", "==", detection.class),
-      where("acknowledged","==", false),
-      where("createdAt",   ">=", windowStart),
+      where("cameraId", "==", cameraId),
+      orderBy("createdAt", "desc"),
+      limit(5),
     ));
 
-    if (!evSnap.empty) {
-      eventId = evSnap.docs[0].id;
-      const existing  = evSnap.docs[0].data();
-      const newCount  = (existing.detectionIds?.length ?? 0) + 1;
-      await updateDoc(evSnap.docs[0].ref, {
+    // Filtrer côté client: même type + non acquitté + dans la fenêtre 30s
+    const existing = evSnap.docs
+      .map(d => ({ ref: d.ref, ...d.data() as any }))
+      .find(e =>
+        e.primaryType === detection.class &&
+        !e.acknowledged &&
+        e.createdAt >= windowStart
+      );
+
+    if (existing) {
+      eventId = existing.ref.id;
+      const newCount = (existing.detectionIds?.length ?? 0) + 1;
+      await updateDoc(existing.ref, {
         detectionIds:    arrayUnion(detId),
         severity:        computeSeverity(detection.class, newCount),
         durationSeconds: Math.round((Date.now() - new Date(existing.createdAt).getTime()) / 1000),
@@ -108,8 +116,21 @@ export async function runDetectionPipeline(input: {
       });
     }
   } catch (err: any) {
-    console.warn("[pipeline] event error:", err.message);
-    eventId = "error";
+    console.error("[pipeline] event error:", err.message);
+    // Créer l'event quand même en fallback
+    try {
+      eventId = doc(collection(db, "_tmp")).id;
+      await setDoc(doc(db, "organizations", organizationId, "events", eventId), {
+        id:eventId, organizationId, siteId:"default", cameraId,
+        detectionIds:[detId], primaryType:detection.class,
+        category:detection.category, label:detection.label,
+        severity:classDef.severity,
+        durationSeconds:0, thumbnailUrl:snapshotUrl, videoClipUrl:null,
+        acknowledged:false, createdAt:now, updatedAt:now,
+      });
+    } catch {
+      eventId = "error";
+    }
   }
 
   // 5. Notification si sévérité >= warning
