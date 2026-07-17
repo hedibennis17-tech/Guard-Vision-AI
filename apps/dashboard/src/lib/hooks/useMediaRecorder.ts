@@ -21,6 +21,7 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
   const [recording,  setRecording]  = useState(false);
   const [uploading,  setUploading]  = useState(false);
   const [storageOk,  setStorageOk]  = useState<boolean | null>(null); // null=inconnu
+  const [lastLog,    setLastLog]    = useState<string>("");
 
   const startClip = useCallback(async (options: {
     organizationId: string;
@@ -33,11 +34,14 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
     // Récupère le stream depuis le videoRef
     const stream = videoRef.current?.srcObject as MediaStream | null;
     if (!stream) {
-      console.warn("[useMediaRecorder] Pas de stream sur videoRef.current.srcObject");
+      const msg = "⚠️ Pas de flux vidéo détecté";
+      setLastLog(msg);
+      console.warn("[useMediaRecorder]", msg);
       return null;
     }
     if (recording) {
-      console.warn("[useMediaRecorder] Déjà en enregistrement");
+      const msg = "⚠️ Enregistrement déjà en cours";
+      setLastLog(msg);
       return null;
     }
 
@@ -49,10 +53,12 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
       "video/mp4",
     ].find((m) => MediaRecorder.isTypeSupported(m)) ?? "video/webm";
 
-    console.log("[useMediaRecorder] Démarrage clip — mimeType:", mimeType, "durée:", durationSec, "s");
+    const startMsg = `🎬 Enregistrement démarré (${mimeType}, ${durationSec}s)`;
+    setLastLog(startMsg);
+    console.log("[useMediaRecorder]", startMsg);
 
     chunksRef.current = [];
-    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1_000_000 });
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1_200_000 });
     recorderRef.current = recorder;
 
     return new Promise((resolve) => {
@@ -61,7 +67,9 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
       };
 
       recorder.onerror = (e) => {
-        console.error("[useMediaRecorder] MediaRecorder error:", e);
+        const msg = "❌ Erreur MediaRecorder";
+        console.error("[useMediaRecorder]", msg, e);
+        setLastLog(msg);
         setRecording(false);
         resolve(null);
       };
@@ -72,10 +80,14 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
 
         const blob = new Blob(chunksRef.current, { type: mimeType });
         const sizeKb = Math.round(blob.size / 1024);
-        console.log("[useMediaRecorder] Clip enregistré — taille:", sizeKb, "Ko");
+        
+        const blobMsg = `📦 Blob prêt: ${sizeKb}KB (${mimeType})`;
+        setLastLog(blobMsg);
+        console.log("[useMediaRecorder]", blobMsg);
 
         if (sizeKb < 1) {
-          console.warn("[useMediaRecorder] Blob vide — aucun chunk capturé");
+          const emptyMsg = "⚠️ Clip vide — capture échouée";
+          setLastLog(emptyMsg);
           setUploading(false);
           resolve(null);
           return;
@@ -84,7 +96,6 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
         const ext  = mimeType.includes("mp4") ? "mp4" : "webm";
         const path = `organizations/${organizationId}/clips/${cameraId}/${eventId}.${ext}`;
 
-        // Tentative upload Firebase Storage
         try {
           const sRef = ref(storage, path);
           await uploadBytes(sRef, blob, { contentType: mimeType });
@@ -99,12 +110,14 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
 
           setStorageOk(true);
           setUploading(false);
-          console.log("[useMediaRecorder] ✅ Clip uploadé dans Storage:", videoClipUrl);
+          const okMsg = `✅ Clip → Firebase Storage (${sizeKb}KB)`;
+          setLastLog(okMsg);
+          console.log("[useMediaRecorder]", okMsg);
           resolve({ videoClipUrl, durationSeconds: durationSec, sizeKb });
 
         } catch (storageErr: any) {
-          // Storage échoue → fallback blob URL local (visible dans la session courante)
-          console.error("[useMediaRecorder] ❌ Storage upload failed:", storageErr?.message ?? storageErr);
+          // Storage échoue → fallback blob URL local
+          const errMsg = storageErr?.message ?? "Erreur Storage";
           setStorageOk(false);
 
           // Libère l'ancien blob URL si existant
@@ -112,16 +125,20 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
           const blobUrl = URL.createObjectURL(blob);
           blobUrlRef.current = blobUrl;
 
-          // Écrit le blob URL dans Firestore pour que Events page le voie
+          const failMsg = `⚠️ Clip local — Erreur Storage: ${errMsg}`;
+          setLastLog(failMsg);
+          console.error("[useMediaRecorder]", failMsg);
+
+          // Écrit le blob URL dans Firestore pour que Events page le voie (fallback temporaire)
           try {
             await updateDoc(doc(db, "organizations", organizationId, "events", eventId), {
               videoClipUrl: blobUrl,
               clipStatus:   "local",
-              storageError: storageErr?.message ?? "Storage non configuré",
+              storageError: errMsg,
               updatedAt:    new Date().toISOString(),
             });
           } catch (fsErr) {
-            console.error("[useMediaRecorder] Firestore update aussi failed:", fsErr);
+            console.error("[useMediaRecorder] Firestore update failed:", fsErr);
           }
 
           setUploading(false);
@@ -130,18 +147,17 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
             durationSeconds: durationSec,
             sizeKb,
             isLocal:       true,
-            storageError:  storageErr?.message ?? "Storage non configuré",
+            storageError:  errMsg,
           });
         }
       };
 
       recorder.start(500);
       setRecording(true);
-      console.log("[useMediaRecorder] ▶ Enregistrement démarré");
 
       timeoutRef.current = setTimeout(() => {
         if (recorder.state === "recording") {
-          console.log("[useMediaRecorder] ⏹ Stop automatique après", durationSec, "s");
+          setLastLog("⏹ Arrêt automatique (timeout)");
           recorder.stop();
         }
       }, durationSec * 1000);
@@ -150,8 +166,11 @@ export function useMediaRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
 
   const stopClip = useCallback(() => {
     timeoutRef.current && clearTimeout(timeoutRef.current);
-    recorderRef.current?.state === "recording" && recorderRef.current.stop();
+    if (recorderRef.current?.state === "recording") {
+      setLastLog("⏹ Arrêt manuel");
+      recorderRef.current.stop();
+    }
   }, []);
 
-  return { startClip, stopClip, recording, uploading, storageOk };
+  return { startClip, stopClip, recording, uploading, storageOk, lastLog };
 }

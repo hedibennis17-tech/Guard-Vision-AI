@@ -48,6 +48,9 @@ const SEV = {
 function VideoPlayer({ url, thumbnail, clipStatus }: { url?: string; thumbnail?: string; clipStatus?: "recording" | "ready" | "local" | "failed" }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  const isBlob = url?.startsWith("blob:");
 
   if (!url) {
     const isRecordingNow = clipStatus === "recording";
@@ -90,20 +93,49 @@ function VideoPlayer({ url, thumbnail, clipStatus }: { url?: string; thumbnail?:
 
   return (
     <div className="relative aspect-video overflow-hidden rounded-xl bg-black border border-slate-800">
+      {error ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900 text-center p-4">
+          <span className="text-2xl">⚠️</span>
+          <p className="text-sm text-white font-medium">Erreur de lecture</p>
+          <p className="text-xs text-slate-500 max-w-[200px]">{error}</p>
+          <button onClick={() => { setError(null); videoRef.current?.load(); }}
+            className="mt-2 rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-white hover:bg-slate-700">
+            Réessayer
+          </button>
+        </div>
+      ) : null}
       <video
         ref={videoRef}
         src={url}
         poster={thumbnail}
         controls
-        preload="metadata"
-        className="h-full w-full"
+        preload="auto"
+        className={`h-full w-full ${error ? "hidden" : "block"}`}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
+        onError={(e) => {
+          const v = e.currentTarget;
+          let msg = "Format non supporté ou fichier corrompu";
+          if (v.error?.code === 1) msg = "Lecture annulée";
+          if (v.error?.code === 2) msg = "Erreur réseau";
+          if (v.error?.code === 3) msg = "Erreur de décodage";
+          if (v.error?.code === 4) msg = "Source non trouvée";
+          setError(msg);
+        }}
       />
       {/* Badge */}
-      <div className="absolute top-2 left-2 flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-        <span className="text-xs text-white font-medium">CLIP</span>
+      <div className="absolute top-2 left-2 flex items-center gap-2">
+        <div className="flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5">
+          <span className={`h-1.5 w-1.5 rounded-full ${isBlob ? "bg-amber-500" : "bg-red-500"}`} />
+          <span className="text-[10px] text-white font-bold tracking-wider uppercase">
+            {isBlob ? "LOCAL BLOB" : "STORAGE CLIP"}
+          </span>
+        </div>
+        {isBlob && (
+          <div className="rounded-full bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 text-[10px] text-amber-400">
+            Session active uniquement
+          </div>
+        )}
       </div>
     </div>
   );

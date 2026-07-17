@@ -29,7 +29,12 @@ export default function PhoneCameraPage() {
   const [pipeLog,     setPipeLog]     = useState("En attente...");
   const [totalSaved,  setTotalSaved]  = useState(0);
 
-  const { startClip, stopClip, recording: isRecording } = useMediaRecorder(videoRef);
+  const { startClip, stopClip, recording: isRecording, lastLog } = useMediaRecorder(videoRef);
+
+  // Synchroniser les logs du hook vers le pipeLog local
+  useEffect(() => {
+    if (lastLog) setPipeLog(lastLog);
+  }, [lastLog]);
 
   // Auto-init
   useEffect(() => {
@@ -208,12 +213,35 @@ export default function PhoneCameraPage() {
             </div>
 
             {/* Log pipeline */}
-            <div className={`rounded-lg border px-3 py-2 text-xs font-mono ${
-              pipeLog.startsWith("✅") ? "border-emerald-800 bg-emerald-900/10 text-emerald-400"
-              : pipeLog.startsWith("❌") ? "border-red-800 bg-red-900/10 text-red-400"
-              : pipeLog.startsWith("⚠️") ? "border-amber-800 bg-amber-900/10 text-amber-400"
-              : "border-slate-800 bg-slate-900 text-slate-400"}`}>
-              {pipeLog}
+            <div className="flex flex-col gap-2">
+              <div className={`flex-1 rounded-lg border px-3 py-2 text-xs font-mono ${
+                pipeLog.startsWith("✅") ? "border-emerald-800 bg-emerald-900/10 text-emerald-400"
+                : pipeLog.startsWith("❌") ? "border-red-800 bg-red-900/10 text-red-400"
+                : pipeLog.startsWith("⚠️") ? "border-amber-800 bg-amber-900/10 text-amber-400"
+                : "border-slate-800 bg-slate-900 text-slate-400"}`}>
+                {pipeLog}
+              </div>
+              <button 
+                onClick={async () => {
+                  if (!orgIdRef.current || !camIdRef.current) {
+                    setPipeLog("⚠️ Erreur: Caméra non initialisée");
+                    return;
+                  }
+                  setPipeLog("🎬 Test clip manuel...");
+                  const clip = await startClip({
+                    organizationId: orgIdRef.current,
+                    cameraId: camIdRef.current,
+                    eventId: `test-${Date.now()}`,
+                    durationSec: 5
+                  });
+                  if (clip) setPipeLog(`✅ Test fini: ${clip.sizeKb}KB`);
+                }}
+                disabled={isRecording}
+                className={`rounded-lg px-3 py-2 text-xs font-medium transition-all ${
+                  isRecording ? "bg-slate-800 text-slate-500" : "bg-brand/10 text-brand border border-brand/30 hover:bg-brand/20"
+                }`}>
+                {isRecording ? "Enregistrement en cours..." : "🎥 Tester l'enregistrement (5s)"}
+              </button>
             </div>
           </div>
 
