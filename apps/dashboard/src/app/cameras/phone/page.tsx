@@ -9,6 +9,7 @@ import { runDetectionPipeline, updateEventWithClip, markClipStatus } from "@/lib
 import { quickSetup, createCameraDirectly, checkSetup } from "@/lib/services/setupService";
 import { CATEGORY_LABELS } from "@/lib/detection/classMap";
 import { auth } from "@/lib/firebase/client";
+import { useActiveModules } from "@/lib/orchestrator/useActiveModules";
 
 interface SavedItem {
   label: string; time: string; color: string;
@@ -29,6 +30,8 @@ export default function PhoneCameraPage() {
   const [pipeLog,     setPipeLog]     = useState("En attente...");
   const [pipeLogs,    setPipeLogs]    = useState<string[]>([]);
   const [totalSaved,  setTotalSaved]  = useState(0);
+  const [orgIdState,  setOrgIdState]  = useState<string|undefined>(undefined);
+  const { modules: activeModules }    = useActiveModules(orgIdState);
 
   const { startClip, stopClip, recording: isRecording, lastLog } = useMediaRecorder(videoRef);
 
@@ -49,6 +52,7 @@ export default function PhoneCameraPage() {
           orgId = r.organizationId;
         }
         orgIdRef.current = orgId;
+        setOrgIdState(orgId);
         setPipeLog("Création de la caméra...");
         const camId = await createCameraDirectly({
           organizationId: orgId,
@@ -58,6 +62,7 @@ export default function PhoneCameraPage() {
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
         camIdRef.current = camId;
+        setOrgIdState(orgIdRef.current ?? undefined);
         setPipeLog(`✅ Prêt — org: ${orgId.slice(0,8)}... cam: ${camId.slice(0,8)}...`);
         setReady(true);
       } catch (err: any) {
@@ -217,6 +222,18 @@ export default function PhoneCameraPage() {
                 🤖 {detMode !== "off" ? "IA active" : "Activer l'IA"}
               </button>
             </div>
+
+            {/* Modules actifs */}
+            {activeModules.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {activeModules.map(m => (
+                  <Link key={m.id} href={`/modules/${m.id}`}
+                    className="flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-xs text-brand hover:bg-brand/20">
+                    {m.config.icon} {m.config.name}
+                  </Link>
+                ))}
+              </div>
+            )}
 
             {/* Log pipeline */}
             <div className="flex flex-col gap-2">
