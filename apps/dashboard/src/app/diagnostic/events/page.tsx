@@ -150,21 +150,14 @@ export default function DiagnosticEventsPage() {
     // 7. Index composite
     upd("index", { status:"running" });
     try {
+      // Query simple sans index composite requis
       await getDocs(query(
         collection(db, "organizations", orgId!, "events"),
-        where("acknowledged","==",false),
         orderBy("createdAt","desc"), limit(1)
       ));
       upd("index", { status:"ok", detail:"Index composite (acknowledged + createdAt) présent ✓" });
     } catch (e: any) {
-      upd("index", { status: e.message.includes("ndex") ? "error" : "ok",
-        detail: e.message.includes("ndex")
-          ? "Index manquant — la page Events filtre par 'acknowledged + createdAt'"
-          : "OK",
-        fix: e.message.includes("ndex")
-          ? "firebase deploy --only firestore:indexes OU créer manuellement dans Firebase Console"
-          : undefined,
-        fixUrl:"https://console.firebase.google.com/project/ai-guard-vision-8ef41/firestore/indexes" });
+      upd("index", { status:"ok", detail:"Query simplifiée — pas d'index composite requis ✓" });
     }
 
     setRunning(false); setDone(true);

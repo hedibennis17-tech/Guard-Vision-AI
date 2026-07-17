@@ -204,10 +204,12 @@ export default function EventsPage() {
 
   useEffect(() => {
     if (!currentOrg?.id) { setLoading(false); return; }
+    // Pas de filtre where() + orderBy() combiné pour éviter l'index composite
+    // Le filtre acknowledged se fait côté client
     const q = query(
       collection(db, "organizations", currentOrg.id, "events"),
       orderBy("createdAt", "desc"),
-      limit(50),
+      limit(100),
     );
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => ({ id:d.id, ...d.data() } as EventDoc));
