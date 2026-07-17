@@ -299,7 +299,7 @@ export default function ModuleTestPage() {
 
           {/* Note YOLOv11 */}
           <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-xs text-slate-500">
-            ℹ️ {config.yoloNote}
+            ℹ️ {config.browserNote}
           </div>
         </div>
 

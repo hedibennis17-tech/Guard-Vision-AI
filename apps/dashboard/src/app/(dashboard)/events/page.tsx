@@ -189,12 +189,25 @@ export default function EventsPage() {
       orderBy("createdAt","desc"),
       limit(500),
     );
-    const unsub = onSnapshot(q, snap=>{
-      const docs = snap.docs.map(d=>({id:d.id,...d.data()}as EventDoc));
-      setEvents(docs);
-      if (docs.length>0) setSelected(prev=>docs.find(e=>e.id===prev?.id)??docs[0]);
-      setLoading(false);
-    },()=>setLoading(false));
+    const unsub = onSnapshot(q,
+      snap=>{
+        const docs = snap.docs.map(d=>({id:d.id,...d.data()}as EventDoc));
+        setEvents(docs);
+        if (docs.length>0) setSelected(prev=>docs.find(e=>e.id===prev?.id)??docs[0]);
+        setLoading(false);
+      },
+      err=>{
+        console.error("[Events] Firestore error:", err.code, err.message);
+        // Si erreur index: essayer sans orderBy
+        getDocs(collection(db,"organizations",orgId,"events")).then(snap2=>{
+          const docs=snap2.docs.map(d=>({id:d.id,...d.data()}as EventDoc))
+            .sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+          setEvents(docs);
+          if(docs.length>0) setSelected(docs[0]);
+          setLoading(false);
+        }).catch(()=>setLoading(false));
+      }
+    );
     return unsub;
   },[orgId]);
 
