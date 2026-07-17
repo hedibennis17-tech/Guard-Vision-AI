@@ -29,7 +29,13 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!currentOrg?.id) { setLoading(false); return; }
+    if (!currentOrg?.id) { 
+      setLoading(false); 
+      return; 
+    }
+
+    console.log("[NotificationsPage] Subscribing to notifications for org:", currentOrg.id);
+    setLoading(true);
 
     const q = query(
       collection(db, "organizations", currentOrg.id, "notifications"),
@@ -37,12 +43,23 @@ export default function NotificationsPage() {
       limit(50),
     );
 
-    const unsub = onSnapshot(q, (snap) => {
-      setNotifs(snap.docs.map((d) => ({ id:d.id, ...d.data() } as NotifItem)));
-      setLoading(false);
-    }, () => setLoading(false));
+    const unsub = onSnapshot(q, {
+      next: (snap) => {
+        const docs = snap.docs.map((d) => ({ id:d.id, ...d.data() } as NotifItem));
+        console.log(`[NotificationsPage] Received ${docs.length} notifications`);
+        setNotifs(docs);
+        setLoading(false);
+      },
+      error: (err) => {
+        console.error("[NotificationsPage] Firestore error:", err);
+        setLoading(false);
+      }
+    });
 
-    return unsub;
+    return () => {
+      console.log("[NotificationsPage] Unsubscribing from notifications");
+      unsub();
+    };
   }, [currentOrg?.id]);
 
   async function markRead(id: string) {

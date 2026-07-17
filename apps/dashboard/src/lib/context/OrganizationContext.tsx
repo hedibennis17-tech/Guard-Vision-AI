@@ -49,20 +49,31 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     );
 
     // Charger depuis le profil utilisateur pour commencer
-    getDoc(doc(db, "users", user.uid)).then(async (userSnap) => {
+    const userDocRef = doc(db, "users", user.uid);
+    const unsubUser = onSnapshot(userDocRef, async (userSnap) => {
       const userData = userSnap.data();
-      if (!userData?.defaultOrganizationId) { setLoading(false); return; }
+      if (!userData?.defaultOrganizationId) { 
+        setLoading(false); 
+        return; 
+      }
 
       const orgSnap = await getDoc(doc(db, "organizations", userData.defaultOrganizationId));
       if (orgSnap.exists()) {
         const orgData = { id: orgSnap.id, ...orgSnap.data() } as OrganizationDoc;
         setOrganizations([orgData]);
-        setCurrentOrgId(orgData.id);
+        // Ne changer currentOrgId que s'il n'est pas déjà défini pour éviter les flashs
+        setCurrentOrgId(prev => prev || orgData.id);
       }
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }, (err) => {
+      console.error("[OrganizationContext] User snapshot error:", err);
+      setLoading(false);
+    });
 
-    return () => unsubs.forEach((u) => u());
+    return () => {
+      unsubUser();
+      unsubs.forEach((u) => u());
+    };
   }, [user]);
 
   // Écouter l'abonnement et le membership de l'org courante
