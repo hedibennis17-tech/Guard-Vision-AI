@@ -1,7 +1,3 @@
-# Ces packages sont déjà dans l'image ultralytics:
-# torch, torchvision, ultralytics, opencv, numpy, Pillow
-
-# Nos ajouts uniquement:
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9
@@ -13,3 +9,8 @@ loguru==0.7.2
 aiofiles==24.1.0
 httpx==0.27.2
 websockets==12.0
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+Pillow==10.4.0
+onnxruntime==1.19.2
+scipy==1.13.1
