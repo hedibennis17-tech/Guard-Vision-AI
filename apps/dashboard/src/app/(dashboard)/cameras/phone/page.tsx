@@ -129,11 +129,12 @@ export default function PhoneCameraPage() {
           detection:det, videoElement:videoRef.current,
         });
         if(result?.eventId && result.eventId!=="error"){
-          const logMsg = `✅ ${det.label} → Event${result.snapshotUrl?" + 📷":""}`;
+          const hasClip = result.snapshotUrl ? " + 📷" : "";
+          const logMsg = `✅ ${det.label} → Event${hasClip} (${Math.round(det.score*100)}%)`;
           setPipeLog(logMsg);
           setPipeLogs(prev=>[`${now} ${logMsg}`,...prev].slice(0,15));
           // Clip pour les alertes critiques
-          if(videoRef.current?.srcObject && !recording && det.severity==="critical"){
+          if(videoRef.current?.srcObject && !recording && (det.severity==="critical"||det.severity==="warning")){
             startClip({organizationId:orgId,cameraId:camId,eventId:result.eventId,durationSec:12})
               .then(clip=>{ if(clip) setPipeLog(`🎬 Clip ${clip.durationSeconds}s → Storage`); });
           }
