@@ -15,5 +15,11 @@
   },
   "engines": {
     "node": ">=18.17.0"
+  },
+  "overrides": {
+    "next": "^14.2.35"
+  },
+  "resolutions": {
+    "next": "^14.2.35"
   }
 }
