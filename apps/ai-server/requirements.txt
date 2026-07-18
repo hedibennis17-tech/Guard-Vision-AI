@@ -9,3 +9,4 @@ loguru==0.7.2
 Pillow==10.4.0
 numpy==1.26.4
 httpx==0.27.2
+pyresearch==1.2
