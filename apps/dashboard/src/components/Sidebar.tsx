@@ -62,6 +62,7 @@ const NAV_GROUPS: NavGroup[] = [
     { href:"/billing",        icon:"💳", label:"Facturation"    },
     { href:"/settings",       icon:"⚙️",  label:"Paramètres"    },
     { href:"/diagnostic",     icon:"🔧", label:"Diagnostic"     },
+    { href:"/diagnostic/ai",  icon:"🔬", label:"Diagnostic IA"  },
   ]},
 ];
 
