@@ -1,27 +1,13 @@
 """
-Vision Guard AI Server — FastAPI
-Architecture: Caméra → WebSocket → YOLOv11 → ByteTrack → OCR → CLIP → Firebase
-
-Endpoints:
-  GET  /                     → Status + modèles chargés
-  GET  /health               → Health check
-  POST /detect               → Détection sur une image (base64/bytes)
-  POST /detect/frame         → Détection frame + tracking + OCR
-  WS   /ws/{camera_id}       → Stream temps réel
-  GET  /models               → Liste des modèles disponibles
-  POST /pipeline/run         → Pipeline complet (YOLO → Track → OCR → Firebase)
+Vision Guard AI Server
+YOLOv11 + ByteTrack + OCR (optionnel) + Firebase
 """
-
-import asyncio
-import base64
-import time
-import json
-import traceback
+import asyncio, base64, time, json, os
 from typing import Optional, List, Dict, Any
 
 import numpy as np
 import cv2
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -30,198 +16,148 @@ from loguru import logger
 from config.settings import settings
 from detection.yolo_detector import get_detector
 from tracking.bytetrack import get_tracker
-from ocr.paddle_ocr import get_ocr
 from firebase.firestore_client import get_firestore
 
-# ── App ───────────────────────────────────────────────────────────────────────
-
-app = FastAPI(
-    title="Vision Guard AI Server",
-    description="YOLOv11 + ByteTrack + PaddleOCR + CLIP — AI Vision Platform",
-    version="1.0.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],     # En prod: mettre l'URL du dashboard Vercel
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="Vision Guard AI Server", version="1.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ── Startup ───────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def startup():
-    logger.info("🚀 Vision Guard AI Server starting...")
-    # Précharger les modèles
+    logger.info("🚀 Vision Guard AI Server démarrage...")
     detector  = get_detector()
     tracker   = get_tracker()
-    ocr       = get_ocr()
     firestore = get_firestore()
     logger.success(
-        f"✅ Server ready — "
-        f"YOLO: {'✅' if detector.loaded else '❌'} | "
-        f"OCR: {'✅' if ocr._loaded else '❌'} | "
-        f"Firebase: {'✅' if firestore.connected else '❌'}"
+        f"✅ Prêt — YOLO:{detector.loaded} | Firebase:{firestore.connected}"
     )
 
-# ── Models de requêtes ────────────────────────────────────────────────────────
-
-class DetectRequest(BaseModel):
-    image:          str              # base64 image (avec ou sans header data:image/...)
-    module_id:      str = "general"  # construction | industrial | retail | transportation
-    organization_id:str = ""
-    camera_id:      str = ""
-    confidence:     Optional[float] = None
-    run_ocr:        bool = False
-    run_tracking:   bool = True
-    save_to_firebase:bool = False
-
-class PipelineRequest(BaseModel):
-    image:          str
-    organization_id:str
-    camera_id:      str
-    module_id:      str = "general"
-    confidence:     Optional[float] = None
-    save_firebase:  bool = True
-
-# ── Routes ────────────────────────────────────────────────────────────────────
-
-@app.get("/")
-async def root():
-    detector  = get_detector()
-    ocr       = get_ocr()
-    firestore = get_firestore()
-    return {
-        "service":    "Vision Guard AI Server",
-        "version":    "1.0.0",
-        "status":     "operational",
-        "models": {
-            "yolov11":   {"loaded": detector.loaded, "models": list(detector.models.keys())},
-            "bytetrack": {"loaded": True, "description": "Multi-object tracking"},
-            "paddleocr": {"loaded": ocr._loaded, "language": settings.OCR_LANGUAGE},
-            "clip":      {"loaded": False, "note": "GPU recommandé"},
-            "sam2":      {"loaded": False, "note": "GPU requis"},
-        },
-        "firebase":   {"connected": firestore.connected, "project": settings.FIREBASE_PROJECT_ID},
-        "settings": {
-            "device":    settings.YOLO_DEVICE,
-            "yolo_model":settings.YOLO_MODEL,
-            "confidence":settings.YOLO_CONFIDENCE,
-        }
-    }
+# ── Health / Status ───────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "timestamp": time.time()}
 
-@app.get("/models")
-async def list_models():
-    detector = get_detector()
+@app.get("/")
+async def root():
+    detector  = get_detector()
+    firestore = get_firestore()
+
+    # Test OCR optionnel
+    ocr_loaded = False
+    try:
+        from ocr.paddle_ocr import get_ocr
+        ocr_loaded = get_ocr()._loaded
+    except Exception: pass
+
+    # Test Shoplifting optionnel
+    shoplifting_loaded = False
+    try:
+        from detection.shoplifting_detector import get_shoplifting_detector
+        shoplifting_loaded = get_shoplifting_detector().loaded
+    except Exception: pass
+
     return {
-        "available": list(detector.models.keys()),
-        "yolo_model": settings.YOLO_MODEL,
-        "device": settings.YOLO_DEVICE,
-        "custom_models": [k for k in detector.models.keys() if k != "general"],
+        "service": "Vision Guard AI Server",
+        "version": "1.0.0",
+        "status":  "operational",
+        "models": {
+            "yolov11":    {"loaded": detector.loaded,       "models": list(detector.models.keys())},
+            "bytetrack":  {"loaded": True,                  "note":   "Intégré via ultralytics"},
+            "paddleocr":  {"loaded": ocr_loaded,            "note":   "Optionnel — installez PaddleOCR séparément"},
+            "shoplifting":{"loaded": shoplifting_loaded,    "note":   "Nécessite shoplifting_wights.pt dans models/"},
+            "clip":       {"loaded": False,                 "note":   "GPU requis"},
+            "sam2":       {"loaded": False,                 "note":   "GPU requis"},
+        },
+        "firebase": {"connected": firestore.connected, "project": settings.FIREBASE_PROJECT_ID},
     }
 
+# ── Modèles de requêtes ────────────────────────────────────────────────────────
+
+class DetectRequest(BaseModel):
+    image:           str
+    module_id:       str  = "general"
+    organization_id: str  = ""
+    camera_id:       str  = ""
+    confidence:      Optional[float] = None
+    run_ocr:         bool = False
+    run_tracking:    bool = True
+    save_to_firebase:bool = False
+
+class PipelineRequest(BaseModel):
+    image:           str
+    organization_id: str
+    camera_id:       str
+    module_id:       str  = "general"
+    confidence:      Optional[float] = None
+    save_firebase:   bool = True
+
+# ── Endpoints détection ───────────────────────────────────────────────────────
 
 @app.post("/detect")
 async def detect_image(req: DetectRequest):
-    """
-    Détecte les objets dans une image base64.
-    Point d'entrée principal pour le dashboard.
-    """
-    start = time.time()
+    start    = time.time()
     detector = get_detector()
-
     if not detector.loaded:
-        raise HTTPException(503, "YOLOv11 non chargé")
+        raise HTTPException(503, "YOLOv11 non chargé — vérifiez les logs")
 
-    detections = detector.detect(req.image, req.module_id, req.confidence)
+    dets = detector.detect(req.image, req.module_id, req.confidence)
 
-    # ByteTrack
-    if req.run_tracking and req.camera_id and detections:
-        tracker    = get_tracker()
-        detections = tracker.update(req.camera_id, detections)
+    if req.run_tracking and req.camera_id and dets:
+        tracker = get_tracker()
+        dets    = tracker.update(req.camera_id, dets)
 
-    # OCR
+    # OCR optionnel
     ocr_results = []
-    if req.run_ocr and detections:
-        ocr = get_ocr()
-        img = detector._decode_image(req.image)
-        if img is not None:
-            # OCR sur les zones de texte détectées
-            plate_dets = [d for d in detections if d["class"] in ["license_plate","text"]]
-            if plate_dets:
-                for det in plate_dets:
-                    x1,y1,x2,y2 = det["bbox"]
-                    crop = img[y1:y2, x1:x2]
-                    result = ocr.read_license_plate(crop)
-                    if result:
-                        det["ocr"] = result
-                        ocr_results.append(result)
+    if req.run_ocr and dets:
+        try:
+            from ocr.paddle_ocr import get_ocr
+            ocr = get_ocr()
+            img = detector._decode_image(req.image)
+            if img is not None:
+                for det in dets:
+                    if "plate" in det.get("class", ""):
+                        x1,y1,x2,y2 = det["bbox"]
+                        crop   = img[y1:y2, x1:x2]
+                        result = ocr.read_license_plate(crop)
+                        if result: det["ocr"] = result; ocr_results.append(result)
+        except Exception as e:
+            logger.warning(f"OCR non disponible: {e}")
 
-    # Sauvegarder dans Firebase
+    # Firebase
     if req.save_to_firebase and req.organization_id and req.camera_id:
         fs = get_firestore()
-        for det in detections[:5]:  # max 5 par frame
+        for det in dets[:5]:
             det_id = fs.write_detection(req.organization_id, req.camera_id, det)
             if det_id and det.get("alert"):
                 ev_id = fs.write_event(req.organization_id, req.camera_id, det_id, det)
-                if ev_id:
-                    fs.write_notification(req.organization_id, ev_id, det)
-
-    elapsed = round((time.time()-start)*1000)
+                if ev_id: fs.write_notification(req.organization_id, ev_id, det)
 
     return {
-        "detections":    detections,
-        "count":         len(detections),
-        "alerts":        [d for d in detections if d.get("alert")],
-        "critical":      [d for d in detections if d.get("severity")=="critical"],
-        "ocr_results":   ocr_results,
-        "module":        req.module_id,
-        "inference_ms":  elapsed,
-        "model":         settings.YOLO_MODEL,
+        "detections":   dets,
+        "count":        len(dets),
+        "alerts":       [d for d in dets if d.get("alert")],
+        "critical":     [d for d in dets if d.get("severity")=="critical"],
+        "ocr_results":  ocr_results,
+        "module":       req.module_id,
+        "inference_ms": round((time.time()-start)*1000),
+        "model":        settings.YOLO_MODEL,
     }
-
 
 @app.post("/pipeline/run")
 async def run_pipeline(req: PipelineRequest):
-    """
-    Pipeline complet:
-    Image → YOLOv11 → ByteTrack → OCR (si plaque) → Firebase → Response
-    """
     start    = time.time()
     detector = get_detector()
     tracker  = get_tracker()
-    ocr      = get_ocr()
     fs       = get_firestore()
 
-    # 1. Détection YOLO
-    detections = detector.detect(req.image, req.module_id, req.confidence)
+    dets = detector.detect(req.image, req.module_id, req.confidence)
+    if dets: dets = tracker.update(req.camera_id, dets)
 
-    # 2. ByteTrack
-    if detections:
-        detections = tracker.update(req.camera_id, detections)
-
-    # 3. OCR sur les plaques
-    plate_results = []
-    img = detector._decode_image(req.image)
-    if img is not None:
-        plate_dets = [d for d in detections if "plate" in d.get("class","")]
-        for det in plate_dets:
-            x1,y1,x2,y2 = det["bbox"]
-            crop   = img[y1:y2, x1:x2]
-            plate  = ocr.read_license_plate(crop)
-            if plate:
-                det["plate"] = plate
-                plate_results.append(plate)
-
-    # 4. Firebase
     saved_events = []
     if req.save_firebase:
-        for det in detections:
+        for det in dets:
             det_id = fs.write_detection(req.organization_id, req.camera_id, det)
             if det_id and det.get("severity") in ["warning","critical"]:
                 ev_id = fs.write_event(req.organization_id, req.camera_id, det_id, det)
@@ -229,99 +165,59 @@ async def run_pipeline(req: PipelineRequest):
                     fs.write_notification(req.organization_id, ev_id, det)
                     saved_events.append(ev_id)
 
-    elapsed = round((time.time()-start)*1000)
-
     return {
         "success":      True,
-        "detections":   detections,
-        "count":        len(detections),
+        "detections":   dets,
+        "count":        len(dets),
         "events_saved": saved_events,
-        "plates":       plate_results,
         "module":       req.module_id,
-        "inference_ms": elapsed,
+        "inference_ms": round((time.time()-start)*1000),
     }
 
-
-# ── WebSocket — Stream temps réel ─────────────────────────────────────────────
-
-class ConnectionManager:
-    def __init__(self):
-        self.connections: Dict[str, WebSocket] = {}
-
-    async def connect(self, camera_id: str, ws: WebSocket):
-        await ws.accept()
-        self.connections[camera_id] = ws
-        logger.info(f"📡 Camera connectée: {camera_id} ({len(self.connections)} total)")
-
-    def disconnect(self, camera_id: str):
-        self.connections.pop(camera_id, None)
-        logger.info(f"📴 Camera déconnectée: {camera_id}")
-
-manager = ConnectionManager()
-
-
-@app.websocket("/ws/{camera_id}")
-async def websocket_stream(ws: WebSocket, camera_id: str):
-    """
-    WebSocket pour stream temps réel.
-
-    Client envoie : JSON { image: base64, organization_id, module_id, ... }
-    Serveur répond: JSON { detections, count, alerts, inference_ms, ... }
-    """
-    await manager.connect(camera_id, ws)
-    detector = get_detector()
-    tracker  = get_tracker()
-    fs       = get_firestore()
-
+@app.post("/detect/shoplifting")
+async def detect_shoplifting(
+    image:           str  = "",
+    organization_id: str  = "",
+    camera_id:       str  = "",
+    confidence:      float= 0.50,
+    save_firebase:   bool = False,
+):
     try:
-        while True:
-            raw = await ws.receive_text()
-            payload = json.loads(raw)
-
-            image           = payload.get("image","")
-            module_id       = payload.get("module_id","general")
-            organization_id = payload.get("organization_id","")
-            save_firebase   = payload.get("save_firebase", bool(organization_id))
-
-            if not image:
-                continue
-
-            start      = time.time()
-            detections = detector.detect(image, module_id)
-
-            if detections:
-                detections = tracker.update(camera_id, detections)
-
-            # Firebase (alertes uniquement pour ne pas surcharger)
-            events = []
-            if save_firebase and organization_id:
-                for det in detections:
-                    if det.get("severity") in ["warning","critical"]:
-                        det_id = fs.write_detection(organization_id, camera_id, det)
-                        if det_id:
-                            ev_id = fs.write_event(organization_id, camera_id, det_id, det)
-                            if ev_id:
-                                events.append(ev_id)
-                                fs.write_notification(organization_id, ev_id, det)
-
-            await ws.send_json({
-                "detections":   detections,
-                "count":        len(detections),
-                "alerts":       [d for d in detections if d.get("alert")],
-                "events":       events,
-                "module":       module_id,
-                "inference_ms": round((time.time()-start)*1000),
-                "timestamp":    time.time(),
-            })
-
-    except WebSocketDisconnect:
-        manager.disconnect(camera_id)
+        from detection.shoplifting_detector import get_shoplifting_detector
+        detector = get_shoplifting_detector()
     except Exception as e:
-        logger.error(f"❌ WebSocket error {camera_id}: {e}")
-        manager.disconnect(camera_id)
+        return JSONResponse({"error": f"Module shoplifting non disponible: {e}"}, status_code=503)
 
+    if not detector.loaded:
+        return JSONResponse({
+            "error":    "Modèle shoplifting non chargé",
+            "solution": "Placez shoplifting_wights.pt dans models/",
+            "status":   detector.status,
+        }, status_code=503)
 
-# ── Upload image directe ──────────────────────────────────────────────────────
+    start = time.time()
+    dets  = detector.detect_b64(image, confidence)
+    shoplifting = any(d["class"]=="shoplifting" for d in dets)
+
+    events = []
+    if save_firebase and organization_id and camera_id:
+        fs = get_firestore()
+        for det in dets:
+            if det.get("alert"):
+                det_id = fs.write_detection(organization_id, camera_id, det)
+                if det_id:
+                    ev_id = fs.write_event(organization_id, camera_id, det_id, det)
+                    if ev_id:
+                        fs.write_notification(organization_id, ev_id, det)
+                        events.append(ev_id)
+
+    return {
+        "shoplifting_detected": shoplifting,
+        "status":       "SHOPLIFTING" if shoplifting else "NORMAL",
+        "detections":   dets,
+        "events":       events,
+        "inference_ms": round((time.time()-start)*1000),
+    }
 
 @app.post("/detect/upload")
 async def detect_upload(
@@ -329,100 +225,66 @@ async def detect_upload(
     module_id:       str        = Form("general"),
     organization_id: str        = Form(""),
     camera_id:       str        = Form(""),
-    save_firebase:   bool       = Form(False),
 ):
-    """Détection sur image uploadée (multipart/form-data)"""
     contents = await file.read()
     b64      = base64.b64encode(contents).decode()
-
     req = DetectRequest(
-        image=b64,
-        module_id=module_id,
-        organization_id=organization_id,
-        camera_id=camera_id,
+        image=b64, module_id=module_id,
+        organization_id=organization_id, camera_id=camera_id,
         run_tracking=bool(camera_id),
-        run_ocr=module_id=="transportation",
-        save_to_firebase=save_firebase,
+        run_ocr=(module_id=="transportation"),
     )
     return await detect_image(req)
 
+# ── WebSocket stream ──────────────────────────────────────────────────────────
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+@app.websocket("/ws/{camera_id}")
+async def ws_stream(ws: WebSocket, camera_id: str):
+    await ws.accept()
+    detector = get_detector()
+    tracker  = get_tracker()
+    fs       = get_firestore()
+
+    try:
+        while True:
+            raw     = await ws.receive_text()
+            payload = json.loads(raw)
+            image   = payload.get("image","")
+            module  = payload.get("module_id","general")
+            org     = payload.get("organization_id","")
+            save    = payload.get("save_firebase", bool(org))
+            if not image: continue
+
+            start = time.time()
+            dets  = detector.detect(image, module)
+            if dets: dets = tracker.update(camera_id, dets)
+
+            events = []
+            if save and org:
+                for det in dets:
+                    if det.get("severity") in ["warning","critical"]:
+                        det_id = fs.write_detection(org, camera_id, det)
+                        if det_id:
+                            ev_id = fs.write_event(org, camera_id, det_id, det)
+                            if ev_id:
+                                events.append(ev_id)
+                                fs.write_notification(org, ev_id, det)
+
+            await ws.send_json({
+                "detections":   dets,
+                "count":        len(dets),
+                "alerts":       [d for d in dets if d.get("alert")],
+                "events":       events,
+                "module":       module,
+                "inference_ms": round((time.time()-start)*1000),
+                "timestamp":    time.time(),
+            })
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error(f"WS error {camera_id}: {e}")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        workers=settings.WORKERS,
-        log_level=settings.LOG_LEVEL,
-        reload=settings.ENVIRONMENT == "development",
-    )
-
-
-# ── Shoplifting Detection (PyResearch) ────────────────────────────────────────
-
-class ShopliftingRequest(BaseModel):
-    image:          str       # base64
-    organization_id:str = ""
-    camera_id:      str = ""
-    confidence:     float = 0.50
-    save_firebase:  bool  = False
-
-@app.post("/detect/shoplifting")
-async def detect_shoplifting(req: ShopliftingRequest):
-    """
-    Détection vol à l'étalage — modèle PyResearch YOLOv11 fine-tuned
-    Source: github.com/pyresearch/Shoplifting-Detection
-    Classes: 0=Normal, 1=Shoplifting (CRITIQUE)
-    """
-    from detection.shoplifting_detector import get_shoplifting_detector
-    detector = get_shoplifting_detector()
-
-    if not detector.loaded:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": "Modèle shoplifting non chargé",
-                "solution": "Placez shoplifting_wights.pt dans apps/ai-server/models/",
-                "download": "github.com/pyresearch/Shoplifting-Detection-using-Computer-Vision-and-Machine-Learning",
-                "status": detector.status,
-            }
-        )
-
-    start = time.time()
-    dets  = detector.detect_b64(req.image, req.confidence)
-
-    # Firebase pour les vols détectés
-    events = []
-    if req.save_firebase and req.organization_id and req.camera_id:
-        fs = get_firestore()
-        for det in dets:
-            if det.get("alert"):
-                det_id = fs.write_detection(req.organization_id, req.camera_id, det)
-                if det_id:
-                    ev_id = fs.write_event(req.organization_id, req.camera_id, det_id, det)
-                    if ev_id:
-                        fs.write_notification(req.organization_id, ev_id, det)
-                        events.append(ev_id)
-
-    shoplifting_detected = any(d["class"] == "shoplifting" for d in dets)
-
-    return {
-        "shoplifting_detected": shoplifting_detected,
-        "status":   "SHOPLIFTING" if shoplifting_detected else "NORMAL",
-        "detections": dets,
-        "count":    len(dets),
-        "alerts":   [d for d in dets if d.get("alert")],
-        "events":   events,
-        "inference_ms": round((time.time()-start)*1000),
-        "model":    "shoplifting_wights.pt (PyResearch YOLOv11)",
-    }
-
-
-@app.get("/detect/shoplifting/status")
-async def shoplifting_model_status():
-    """Status du modèle shoplifting"""
-    from detection.shoplifting_detector import get_shoplifting_detector
-    return get_shoplifting_detector().status
+    uvicorn.run("main:app", host=settings.HOST, port=settings.PORT,
+                workers=1, log_level=settings.LOG_LEVEL)
