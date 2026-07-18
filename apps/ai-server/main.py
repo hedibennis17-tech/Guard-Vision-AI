@@ -280,3 +280,94 @@ def ppe_status():
         return get_ppe_detector().status
     except Exception as e:
         return {"error": str(e), "loaded": False}
+
+
+# ── OCR AI Bundle — Vision Guard Recognition Engine ───────────────────────────
+
+class OCRRequest(BaseModel):
+    image:           str
+    module:          str  = "general"   # transportation|retail|industrial|construction|defense
+    organization_id: str  = ""
+    camera_id:       str  = ""
+    run_plate:       bool = True
+    run_barcode:     bool = True
+    run_serial:      bool = True
+    run_warning:     bool = True
+    run_text:        bool = True
+    save_firebase:   bool = False
+
+@app.post("/api/v1/ocr/analyze")
+@app.post("/ocr/analyze")
+def ocr_analyze(req: OCRRequest):
+    """
+    Vision Guard Recognition Engine — Analyse OCR complète
+    Plaques · Codes-barres · QR · Numéros de série · Panneaux danger · Texte
+    Réutilisable: TrafficGuard · Retail · Industrial · AgriGuard · Defense
+    """
+    try:
+        from ocr.vision_guard_ocr import get_ocr
+        engine = get_ocr()
+    except Exception as e:
+        return {"error": f"OCR engine: {e}", "results": {}}
+
+    results = engine.analyze(
+        image_b64=  req.image,
+        module=     req.module,
+        run_plate=  req.run_plate,
+        run_barcode=req.run_barcode,
+        run_serial= req.run_serial,
+        run_warning=req.run_warning,
+        run_text=   req.run_text,
+    )
+
+    # Sauvegarder dans Firebase si détection importante
+    if req.save_firebase and req.organization_id and req.camera_id:
+        db = get_db()
+        if db and results.get("alerts"):
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            for alert in results["alerts"]:
+                if alert.get("type") == "license_plate" or alert.get("severity") == "critical":
+                    ref = db.collection("organizations").document(req.organization_id)\
+                             .collection("events").document()
+                    ref.set({
+                        "id":ref.id,"organizationId":req.organization_id,
+                        "cameraId":req.camera_id,"siteId":"default",
+                        "primaryType":f"ocr_{alert['type']}",
+                        "label":f"{alert['icon']} {alert['value']}",
+                        "category":"ocr","severity":alert.get("severity","info"),
+                        "detectionIds":[],"durationSeconds":0,
+                        "thumbnailUrl":None,"videoClipUrl":None,
+                        "clipStatus":"pending","acknowledged":False,
+                        "source":"ocr_engine","module":req.module,
+                        "createdAt":now,"updatedAt":now,
+                    })
+
+    return results
+
+@app.get("/ocr/status")
+def ocr_status():
+    """Status du moteur OCR"""
+    try:
+        from ocr.vision_guard_ocr import get_ocr
+        return get_ocr().status
+    except Exception as e:
+        return {"error": str(e), "loaded": False}
+
+@app.post("/ocr/plate")
+def ocr_plate_only(req: OCRRequest):
+    """ALPR rapide — plaques seulement"""
+    req.run_barcode = False
+    req.run_text    = False
+    req.run_serial  = False
+    req.run_warning = False
+    return ocr_analyze(req)
+
+@app.post("/ocr/barcode")
+def ocr_barcode_only(req: OCRRequest):
+    """Codes-barres et QR seulement"""
+    req.run_plate   = False
+    req.run_text    = False
+    req.run_serial  = False
+    req.run_warning = False
+    return ocr_analyze(req)
