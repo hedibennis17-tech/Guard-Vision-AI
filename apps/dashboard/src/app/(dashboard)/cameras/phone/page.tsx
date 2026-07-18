@@ -9,6 +9,8 @@ import { runDetectionPipeline } from "@/lib/services/pipelineService";
 import { quickSetup, createCameraDirectly, checkSetup } from "@/lib/services/setupService";
 import { CameraLocationPicker } from "@/components/CameraLocationPicker";
 import { useActiveModules } from "@/lib/orchestrator/useActiveModules";
+import { ModuleToggleBar } from "@/components/ModuleToggleBar";
+import { MODULE_CONFIGS } from "@/lib/orchestrator/moduleConfigs";
 import { auth } from "@/lib/firebase/client";
 
 interface SavedItem { label:string; time:string; color:string; }
@@ -33,6 +35,7 @@ export default function PhoneCameraPage() {
   const [locationLabel,setLocationLabel]= useState<string>("Caméra téléphone");
 
   const { modules: activeModules } = useActiveModules(orgIdState);
+  const [activeModuleIds, setActiveModuleIds] = useState<string[]>([]);
 
   // Init org au montage
   useEffect(()=>{
@@ -322,16 +325,13 @@ export default function PhoneCameraPage() {
             </button>
           </div>
 
-          {/* Modules actifs */}
-          {activeModules.length>0 && (
-            <div className="flex flex-wrap gap-2">
-              {activeModules.map(m=>(
-                <Link key={m.id} href={`/modules/${m.id}`}
-                  className="flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-xs text-brand hover:bg-brand/20">
-                  {m.config.icon} {m.config.name} actif
-                </Link>
-              ))}
-            </div>
+          {/* ModuleToggleBar — panneau modules directement dans la caméra */}
+          {orgIdState && (
+            <ModuleToggleBar
+              organizationId={orgIdState}
+              onModulesChange={setActiveModuleIds}
+              compact={false}
+            />
           )}
 
           {/* Log pipeline */}

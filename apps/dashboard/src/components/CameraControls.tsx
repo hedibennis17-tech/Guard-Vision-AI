@@ -7,6 +7,7 @@ import { useMediaRecorder } from "@/lib/hooks/useMediaRecorder";
 import { DetectionOverlay } from "@/components/DetectionOverlay";
 import { useYoloDetection, type Detection } from "@/lib/hooks/useYoloDetection";
 import { runDetectionPipeline } from "@/lib/services/pipelineService";
+import { ModuleToggleBar } from "@/components/ModuleToggleBar";
 
 interface CameraControlsProps {
   organizationId: string;
@@ -31,6 +32,7 @@ export function CameraControls({
   const [manualEventId, setManualEventId] = useState<string|null>(null);
 
   const { startClip, stopClip, recording, uploading, lastLog } = useMediaRecorder(videoRef);
+  const [activeModuleIds, setActiveModuleIds] = useState<string[]>([]);
 
   // ── Démarrer le flux caméra ──────────────────────────────────────────────
   async function startStream(face: "user"|"environment" = facing) {
@@ -226,6 +228,13 @@ export function CameraControls({
           </button>
         )}
       </div>
+
+      {/* 🧩 Modules IA — activer/désactiver directement */}
+      <ModuleToggleBar
+        organizationId={organizationId}
+        onModulesChange={setActiveModuleIds}
+        compact={false}
+      />
 
       {/* Log status */}
       <div className={`rounded-xl border px-3 py-2.5 text-xs font-mono ${

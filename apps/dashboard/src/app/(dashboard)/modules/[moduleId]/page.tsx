@@ -11,6 +11,7 @@ import { quickSetup, createCameraDirectly, checkSetup } from "@/lib/services/set
 import { MODULE_CONFIGS } from "@/lib/orchestrator/moduleConfigs";
 import { getBundleById } from "@/lib/orchestrator/bundles";
 import { ModuleLocationPicker } from "@/components/ModuleLocationPicker";
+import { ModuleToggleBar } from "@/components/ModuleToggleBar";
 import { auth } from "@/lib/firebase/client";
 
 interface SessionItem {
@@ -39,6 +40,7 @@ export default function ModuleTestPage({ params }: { params: { moduleId: string 
   const [session,      setSession]      = useState<SessionItem[]>([]);
   const [tab,          setTab]          = useState<"live"|"stats"|"tips">("live");
   const [orgIdState,   setOrgIdState]   = useState<string|undefined>(undefined);
+  const [activeModuleIds, setActiveModuleIds] = useState<string[]>([]);
 
   // Picker emplacement
   const [showPicker,   setShowPicker]   = useState(false);
@@ -386,6 +388,15 @@ export default function ModuleTestPage({ params }: { params: { moduleId: string 
               {pipeLog}
             </div>
           </div>
+
+          {/* 🧩 ModuleToggleBar — activer/désactiver modules directement */}
+          {orgIdState && (
+            <ModuleToggleBar
+              organizationId={orgIdState}
+              onModulesChange={setActiveModuleIds}
+              compact={false}
+            />
+          )}
 
           {/* Note navigateur */}
           <div className="rounded-xl border border-amber-800/30 bg-amber-900/10 px-4 py-2.5 text-xs text-amber-400">
