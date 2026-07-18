@@ -576,3 +576,138 @@ export function buildCameraId(zoneId:string, locationId:string, index:number=1):
   const loc  = locationId.slice(0,3).toUpperCase();
   return `CAM-${zone}-${loc}-${String(index).padStart(2,"0")}`;
 }
+
+// ── Catalogue spécifique Industrial Safety ────────────────────────────────────
+export const INDUSTRIAL_LOCATIONS = {
+  id:"industrial_site", label:"Site Industriel", icon:"🏭", color:"#EF4444",
+  categories: [
+    {
+      id:"access_i", label:"🚪 Accès", locations:[
+        "Entrée principale","Entrée employés","Entrée visiteurs","Sortie principale",
+        "Sortie d'urgence","Portail Nord","Portail Sud","Portail Est","Portail Ouest",
+        "Guérite de sécurité","Contrôle d'accès","Réception",
+      ],
+    },
+    {
+      id:"production_i", label:"🏭 Production", locations:[
+        "Ligne de production 1","Ligne de production 2","Ligne de production 3","Ligne de production 4",
+        "Ligne d'assemblage","Ligne d'emballage","Ligne robotisée",
+        "Convoyeur A","Convoyeur B","Convoyeur C",
+        "Cellule robotique","Zone inspection qualité","Zone tests","Zone maintenance",
+      ],
+    },
+    {
+      id:"machines_i", label:"🤖 Machines", locations:[
+        "Presse hydraulique","Presse mécanique","Tour CNC","Fraiseuse CNC",
+        "Découpe laser","Découpe plasma","Machine de moulage","Robot industriel","Bras robotisé",
+        "Imprimante 3D","Compresseur","Génératrice","Salle des machines",
+      ],
+    },
+    {
+      id:"warehouse_i", label:"📦 Entrepôt", locations:[
+        "Réception marchandises","Expédition","Quai 1","Quai 2","Quai 3","Quai 4",
+        "Zone palettes","Zone racks","Rack A","Rack B","Rack C","Rack D",
+        "Zone produits finis","Zone matières premières","Zone emballage","Zone préparation commandes",
+      ],
+    },
+    {
+      id:"hazmat_i", label:"⚠️ Matières dangereuses", locations:[
+        "Salle produits chimiques","Salle gaz","Salle solvants","Zone déchets dangereux",
+        "Cuves","Réservoirs","Zone inflammable","Zone ATEX",
+      ],
+    },
+    {
+      id:"electrical_i", label:"⚡ Électricité", locations:[
+        "Salle électrique","Transformateur","Tableau électrique","Génératrice","UPS","Salle serveurs",
+      ],
+    },
+    {
+      id:"circulation_i", label:"🚛 Circulation", locations:[
+        "Zone chariots élévateurs","Zone AGV","Parking employés","Parking visiteurs",
+        "Cour de manœuvre","Aire chargement","Aire déchargement","Route interne",
+      ],
+    },
+    {
+      id:"safety_i", label:"🔥 Sécurité incendie", locations:[
+        "Extincteurs","Salle incendie","Gicleurs","Point de rassemblement",
+        "Sortie urgence","Corridor principal",
+      ],
+    },
+  ],
+};
+
+// ── Catalogue spécifique Construction Safety ──────────────────────────────────
+export const CONSTRUCTION_LOCATIONS = {
+  id:"construction_site", label:"Chantier de Construction", icon:"🏗️", color:"#F59E0B",
+  categories: [
+    {
+      id:"access_c", label:"🚧 Accès chantier", locations:[
+        "Entrée principale","Entrée employés","Entrée visiteurs","Sortie",
+        "Guérite","Clôture Nord","Clôture Sud","Clôture Est","Clôture Ouest",
+      ],
+    },
+    {
+      id:"temp_c", label:"🏢 Installations temporaires", locations:[
+        "Bureau chantier","Salle réunion","Conteneur outils","Conteneur matériaux",
+        "Salle premiers soins","Toilettes","Cafétéria","Vestiaires",
+      ],
+    },
+    {
+      id:"work_c", label:"🚜 Zones de travail", locations:[
+        "Excavation","Fondation","Coffrage","Bétonnage","Ferraillage","Maçonnerie",
+        "Charpente","Toiture","Façade","Isolation","Cloisons",
+        "Plomberie","Électricité","Ventilation","Finition intérieure","Finition extérieure",
+        "Démolition","Nettoyage",
+      ],
+    },
+    {
+      id:"structures_c", label:"🏗️ Structures", locations:[
+        "Échafaudage Nord","Échafaudage Sud","Échafaudage Est","Échafaudage Ouest",
+        "Escaliers temporaires","Ascenseur chantier","Plateforme élévatrice",
+      ],
+    },
+    {
+      id:"vehicles_c", label:"🚛 Véhicules et engins", locations:[
+        "Zone grue","Zone pelle mécanique","Zone bulldozer","Zone chargeuse",
+        "Zone camion","Zone bétonnière","Zone nacelle","Zone chariot télescopique","Parking engins",
+      ],
+    },
+    {
+      id:"storage_c", label:"📦 Stockage", locations:[
+        "Zone ciment","Zone acier","Zone bois","Zone briques","Zone tuyaux",
+        "Zone câbles","Zone outils","Zone déchets","Zone recyclage","Zone carburant",
+      ],
+    },
+    {
+      id:"risk_c", label:"⚠️ Zones à risque", locations:[
+        "Bord de fouille","Zone haute tension","Zone levage","Zone charges suspendues",
+        "Zone produits dangereux","Zone glissante","Zone interdite","Zone EPI obligatoire",
+      ],
+    },
+    {
+      id:"safety_c", label:"🚨 Sécurité", locations:[
+        "Point rassemblement","Poste sécurité","Infirmerie","Station lavage yeux",
+        "Extincteurs","Issues secours",
+      ],
+    },
+  ],
+};
+
+// ── Zones environnementales communes ─────────────────────────────────────────
+export const ENVIRONMENTAL_LOCATIONS = {
+  id:"environmental", label:"Zones Extérieures / Environnement", icon:"🌍", color:"#10B981",
+  locations:[
+    "Périmètre Nord","Périmètre Sud","Périmètre Est","Périmètre Ouest",
+    "Clôture","Portail","Route d'accès","Aire de stationnement",
+    "Cour extérieure","Aire de chargement","Aire de déchargement",
+    "Zone verte","Bassin de rétention","Zone de drainage","Réservoir d'eau",
+    "Tour de refroidissement","Local technique","Toiture","Sous-sol","Tunnel technique",
+  ],
+};
+
+/** Retourne le catalogue selon l'ID de module */
+export function getModuleLocationCatalog(moduleId: string) {
+  if (moduleId === "industrial")    return INDUSTRIAL_LOCATIONS;
+  if (moduleId === "construction")  return CONSTRUCTION_LOCATIONS;
+  return null;
+}
