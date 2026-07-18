@@ -190,3 +190,93 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
+
+
+# ── PPE Professional Detection ────────────────────────────────────────────────
+
+class PPERequest(BaseModel):
+    image:           str
+    sector:          str   = "general"  # construction|industrial|warehouse|mining
+    organization_id: str   = ""
+    camera_id:       str   = ""
+    confidence:      float = 0.45
+    save_firebase:   bool  = False
+
+@app.post("/detect/ppe")
+def detect_ppe(req: PPERequest):
+    """
+    Détection PPE professionnelle par secteur.
+    Retourne: EPI présents ✅, EPI manquants 🚨, score conformité
+    """
+    try:
+        from detection.ppe_detector import get_ppe_detector
+        detector = get_ppe_detector()
+    except Exception as e:
+        return {"error": f"PPE detector non disponible: {e}", "detections": []}
+
+    if not detector.loaded:
+        return {
+            "error":   "Aucun modèle PPE disponible",
+            "status":  detector.status,
+            "solution":"Exécuter ppe_training/train_ppe.py ou uploader models/ppe.pt",
+            "detections": [],
+        }
+
+    start = time.time()
+    
+    try:
+        from PIL import Image
+        import numpy as np
+        import io
+        
+        b64 = req.image
+        if "," in b64: b64 = b64.split(",")[1]
+        img_bytes = base64.b64decode(b64)
+        img = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
+    except Exception as e:
+        return {"error": f"Décodage image: {e}", "detections": []}
+
+    dets       = detector.detect(img, req.sector, req.confidence)
+    compliance = detector.get_compliance_score(dets)
+
+    # Sauvegarder dans Firebase
+    if req.save_firebase and req.organization_id and req.camera_id:
+        db = get_db()
+        if db:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            for det in dets:
+                if det.get("alert"):
+                    ref = db.collection("organizations").document(req.organization_id)\
+                             .collection("events").document()
+                    ref.set({
+                        "id":ref.id,"organizationId":req.organization_id,
+                        "cameraId":req.camera_id,"siteId":"default",
+                        "primaryType":det["class"],"label":det["label"],
+                        "category":"ppe","severity":det["severity"],
+                        "detectionIds":[],"durationSeconds":0,
+                        "thumbnailUrl":None,"videoClipUrl":None,
+                        "clipStatus":"pending","acknowledged":False,
+                        "source":"ppe_detector","sector":req.sector,
+                        "createdAt":now,"updatedAt":now,
+                    })
+
+    return {
+        "detections":       dets,
+        "count":            len(dets),
+        "alerts":           [d for d in dets if d.get("alert")],
+        "critical":         [d for d in dets if d.get("severity")=="critical"],
+        "compliance":       compliance,
+        "sector":           req.sector,
+        "inference_ms":     round((time.time()-start)*1000),
+        "model_status":     detector.status,
+    }
+
+@app.get("/detect/ppe/status")
+def ppe_status():
+    """Status des modèles PPE disponibles"""
+    try:
+        from detection.ppe_detector import get_ppe_detector
+        return get_ppe_detector().status
+    except Exception as e:
+        return {"error": str(e), "loaded": False}
