@@ -58,9 +58,9 @@ export default function MarketplacePage() {
     setInstalled(prev => { const s = new Set(prev); s.delete(bundleId); return s; });
   }
 
-  const filteredBundles = filterStatus === "all"
+  const filteredBundles = (filterStatus === "all"
     ? AI_BUNDLES
-    : AI_BUNDLES.filter(b => b.status === filterStatus);
+    : AI_BUNDLES.filter(b => b && b.status === filterStatus)).filter(Boolean) as AIBundle[];
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -129,7 +129,7 @@ export default function MarketplacePage() {
               {installed.size > 0 && filterStatus === "all" && (
                 <div className="px-4 pt-4 pb-2">
                   <p className="text-xs font-semibold text-emerald-400 mb-2">✅ INSTALLÉS</p>
-                  {filteredBundles.filter(b => installed.has(b.id)).map(bundle => (
+                  {filteredBundles.filter(b => b && installed.has(b.id)).map(bundle => bundle && (
                     <BundleCard key={bundle.id} bundle={bundle} isInstalled={true}
                       isSelected={selected?.id === bundle.id}
                       onClick={() => setSelected(bundle)} />

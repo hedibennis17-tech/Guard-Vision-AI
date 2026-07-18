@@ -105,7 +105,7 @@ export const AI_MODELS: Record<string, AIModel> = {
 
 // ── Catalogue des bundles ─────────────────────────────────────────────────────
 
-export const AI_BUNDLES: AIBundle[] = [
+export const AI_BUNDLES = [
   // ── Home Security ─────────────────────────────────────────────────────────
   {
     id:"home_security", name:"Home Security", icon:"🏠", sector:"Résidentiel",
@@ -268,6 +268,26 @@ export const AI_BUNDLES: AIBundle[] = [
     ],
   },
 
+
+  // ── Agriculture / AgriGuard ──────────────────────────────────────────────────
+  {
+    id:"agriculture", name:"AgriGuard AI", icon:"🌾", sector:"Agriculture",
+    tagline:"Protégez vos cultures, bétail et exploitations 24h/7j",
+    description:"Surveillance IA complète pour fermes, élevages, serres et exploitations.",
+    status:"available", minPlan:"pro", price:null, color:"#84CC16",
+    models:["yolov11","sam2","grounding_dino","florence2","paddleocr","clip","bytetrack","llama3"],
+    detectionClasses:["person","cow","horse","sheep","pig","chicken","dog","cat","car","fire","smoke"],
+    workflow:["Caméra","YOLOv11","Grounding DINO","Florence-2","ByteTrack","Events","Alertes"],
+    features:[
+      {label:"Comptage bétail temps réel", model:"YOLOv11+ByteTrack",included:true},
+      {label:"Détection intrus",           model:"YOLOv11",          included:true},
+      {label:"Détection prédateurs",       model:"YOLOv11",          included:true},
+      {label:"Détection feu/fumée",        model:"YOLOv11",          included:true},
+      {label:"Analyse cultures",           model:"Florence-2",       included:false},
+    ],
+    popular:false,
+  },
+
   // ── Defense ───────────────────────────────────────────────────────────────
   {
     id:"defense", name:"Defense Shield", icon:"🛡️", sector:"Défense",
@@ -289,25 +309,62 @@ export const AI_BUNDLES: AIBundle[] = [
       { label:"Déploiement on-premise",  model:"—",         included:true  },
     ],
   },
-];
+,
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+  // ── Energy ────────────────────────────────────────────────────────────────────
+  {
+    id:"energy", name:"EnergyGuard AI", icon:"⚡", sector:"Énergie",
+    tagline:"Sécurisez vos infrastructures énergétiques critiques",
+    description:"IA pour centrales électriques, barrages, éoliennes, panneaux solaires, pipelines et réseaux. Maintenance prédictive et sécurité périmétrique.",
+    status:"coming_soon", minPlan:"enterprise", price:null,
+    color:"#F59E0B",
+    models:["yolov11","sam2","grounding_dino","florence2","paddleocr","bytetrack","clip","llama3"],
+    detectionClasses:["person","fire","smoke","car","drone"],
+    workflow:["Multi-Caméras","AI Orchestrator","YOLOv11+SAM2","Analyse Thermique","Firebase Events","Alertes critiques","Maintenance prédictive"],
+    features:[
+      {label:"Détection feu/fumée/gaz",        model:"YOLOv11",      included:true},
+      {label:"Anomalies équipements",           model:"YOLOv11+CLIP", included:true},
+      {label:"Maintenance prédictive",          model:"Florence-2",   included:false},
+      {label:"Détection drones non autorisés",  model:"YOLOv11",      included:true},
+      {label:"Surveillance périmètre 24/7",     model:"ByteTrack",    included:true},
+      {label:"Points chauds thermiques",        model:"Thermique",    included:false},
+      {label:"Rapports HSE Énergie",            model:"LLM",          included:true},
+    ],
+    popular:false,
+  },
+
+  // ── EnergyGuard ──────────────────────────────────────────────────────────────
+  {
+    id:"energy", name:"EnergyGuard AI", icon:"⚡", sector:"Énergie",
+    tagline:"Sécurisez vos infrastructures énergétiques critiques",
+    description:"IA pour centrales, barrages, éoliennes, panneaux solaires et pipelines.",
+    status:"coming_soon", minPlan:"enterprise", price:null, color:"#F59E0B",
+    models:["yolov11","sam2","grounding_dino","florence2","bytetrack","clip","llama3"],
+    detectionClasses:["person","fire","smoke","car","drone"],
+    workflow:["Multi-Caméras","YOLOv11+SAM2","Analyse Thermique","Events","Alertes","Maintenance"],
+    features:[
+      {label:"Détection feu/fumée/gaz",       model:"YOLOv11",     included:true},
+      {label:"Anomalies équipements",          model:"YOLOv11",     included:true},
+      {label:"Drones non autorisés",           model:"YOLOv11",     included:true},
+      {label:"Maintenance prédictive",         model:"Florence-2",  included:false},
+      {label:"Rapports HSE Énergie",           model:"LLM",         included:true},
+    ],
+    popular:false,
+  },
+];
+// ── Helpers exportés ──────────────────────────────────────────────────────────
+
+export const BUNDLE_STATUS_LABELS: Record<BundleStatus, {label:string;color:string;bg:string}> = {
+  available:   {label:"Disponible",  color:"#10B981", bg:"#10B98120"},
+  beta:        {label:"Bêta",        color:"#F59E0B", bg:"#F59E0B20"},
+  coming_soon: {label:"Bientôt",     color:"#64748B", bg:"#64748B20"},
+  enterprise:  {label:"Entreprise",  color:"#8B5CF6", bg:"#8B5CF620"},
+};
 
 export function getBundleById(id: string): AIBundle | undefined {
-  return AI_BUNDLES.find(b => b.id === id);
+  return (AI_BUNDLES as any[]).find(b => b && b.id === id) as AIBundle | undefined;
 }
 
 export function getBundlesByStatus(status: BundleStatus): AIBundle[] {
-  return AI_BUNDLES.filter(b => b.status === status);
+  return (AI_BUNDLES as any[]).filter(b => b && b.status === status) as AIBundle[];
 }
-
-export function getInstalledBundles(enabledModules: string[]): AIBundle[] {
-  return AI_BUNDLES.filter(b => enabledModules.includes(b.id));
-}
-
-export const BUNDLE_STATUS_LABELS: Record<BundleStatus, { label:string; color:string }> = {
-  available:    { label:"Disponible",   color:"#10B981" },
-  beta:         { label:"Bêta",         color:"#F59E0B" },
-  coming_soon:  { label:"Bientôt",      color:"#6B7280" },
-  enterprise:   { label:"Entreprise",   color:"#8B5CF6" },
-};

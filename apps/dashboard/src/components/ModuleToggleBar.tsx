@@ -46,13 +46,15 @@ export function ModuleToggleBar({
     return unsub;
   }, [organizationId]);
 
+  const safeBundles = (AI_BUNDLES as any[]).filter(Boolean);
+
   async function toggleModule(bundleId: string, currentlyOn: boolean) {
     const user = auth.currentUser;
     if (!user || !organizationId) return;
     setToggling(bundleId);
 
     try {
-      const bundle = AI_BUNDLES.find(b => b.id === bundleId);
+      const bundle = safeBundles.find((b:any) => b?.id === bundleId);
       if (currentlyOn) {
         await deleteDoc(doc(db, "organizations", organizationId, "modules", bundleId));
       } else {
@@ -73,9 +75,9 @@ export function ModuleToggleBar({
 
   // Grouper : actifs en premier, puis disponibles, puis bientôt
   const ordered = [
-    ...AI_BUNDLES.filter(b => installed.has(b.id)),
-    ...AI_BUNDLES.filter(b => !installed.has(b.id) && (b.status==="available"||b.status==="beta")),
-    ...AI_BUNDLES.filter(b => !installed.has(b.id) && (b.status==="coming_soon"||b.status==="enterprise")),
+    ...safeBundles.filter((b:any) => installed.has(b.id)),
+    ...safeBundles.filter((b:any) => !installed.has(b.id) && (b.status==="available"||b.status==="beta")),
+    ...safeBundles.filter((b:any) => !installed.has(b.id) && (b.status==="coming_soon"||b.status==="enterprise")),
   ];
 
   return (
@@ -92,7 +94,7 @@ export function ModuleToggleBar({
           {installed.size > 0 && (
             <div className="flex gap-1">
               {Array.from(installed).slice(0, 4).map(id => {
-                const b = AI_BUNDLES.find(b=>b.id===id);
+                const b = safeBundles.find((b:any)=>b?.id===id);
                 return b ? (
                   <span key={id} className="text-base" title={b.name}>{b.icon}</span>
                 ) : null;
@@ -120,7 +122,7 @@ export function ModuleToggleBar({
               const isToggling = toggling === bundle.id;
               const canToggle  = bundle.status === "available" || bundle.status === "beta";
               const config     = MODULE_CONFIGS[bundle.id];
-              const badge      = STATUS_BADGE[bundle.status];
+              const badge      = STATUS_BADGE[bundle.status as string] ?? STATUS_BADGE["available"];
 
               return (
                 <button
@@ -197,7 +199,7 @@ export function ModuleToggleBar({
                 {Array.from(installed).flatMap(id =>
                   MODULE_CONFIGS[id]?.classes.map(cls => ({
                     ...cls, moduleId: id,
-                    color: AI_BUNDLES.find(b=>b.id===id)?.color ?? "#64748B",
+                    color: safeBundles.find((b:any)=>b?.id===id)?.color ?? "#64748B",
                   })) ?? []
                 ).map((cls, i) => (
                   <span key={i}

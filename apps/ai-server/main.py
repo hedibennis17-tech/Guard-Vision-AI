@@ -359,3 +359,70 @@ if __name__ == "__main__":
         log_level=settings.LOG_LEVEL,
         reload=settings.ENVIRONMENT == "development",
     )
+
+
+# ── Shoplifting Detection (PyResearch) ────────────────────────────────────────
+
+class ShopliftingRequest(BaseModel):
+    image:          str       # base64
+    organization_id:str = ""
+    camera_id:      str = ""
+    confidence:     float = 0.50
+    save_firebase:  bool  = False
+
+@app.post("/detect/shoplifting")
+async def detect_shoplifting(req: ShopliftingRequest):
+    """
+    Détection vol à l'étalage — modèle PyResearch YOLOv11 fine-tuned
+    Source: github.com/pyresearch/Shoplifting-Detection
+    Classes: 0=Normal, 1=Shoplifting (CRITIQUE)
+    """
+    from detection.shoplifting_detector import get_shoplifting_detector
+    detector = get_shoplifting_detector()
+
+    if not detector.loaded:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Modèle shoplifting non chargé",
+                "solution": "Placez shoplifting_wights.pt dans apps/ai-server/models/",
+                "download": "github.com/pyresearch/Shoplifting-Detection-using-Computer-Vision-and-Machine-Learning",
+                "status": detector.status,
+            }
+        )
+
+    start = time.time()
+    dets  = detector.detect_b64(req.image, req.confidence)
+
+    # Firebase pour les vols détectés
+    events = []
+    if req.save_firebase and req.organization_id and req.camera_id:
+        fs = get_firestore()
+        for det in dets:
+            if det.get("alert"):
+                det_id = fs.write_detection(req.organization_id, req.camera_id, det)
+                if det_id:
+                    ev_id = fs.write_event(req.organization_id, req.camera_id, det_id, det)
+                    if ev_id:
+                        fs.write_notification(req.organization_id, ev_id, det)
+                        events.append(ev_id)
+
+    shoplifting_detected = any(d["class"] == "shoplifting" for d in dets)
+
+    return {
+        "shoplifting_detected": shoplifting_detected,
+        "status":   "SHOPLIFTING" if shoplifting_detected else "NORMAL",
+        "detections": dets,
+        "count":    len(dets),
+        "alerts":   [d for d in dets if d.get("alert")],
+        "events":   events,
+        "inference_ms": round((time.time()-start)*1000),
+        "model":    "shoplifting_wights.pt (PyResearch YOLOv11)",
+    }
+
+
+@app.get("/detect/shoplifting/status")
+async def shoplifting_model_status():
+    """Status du modèle shoplifting"""
+    from detection.shoplifting_detector import get_shoplifting_detector
+    return get_shoplifting_detector().status

@@ -24,7 +24,7 @@ export default function ModulesPage() {
     if (!currentOrg?.id || !auth.currentUser) return;
     setInstalling(bundleId);
     try {
-      const bundle = AI_BUNDLES.find(b => b.id === bundleId);
+      const bundle = AI_BUNDLES.find(b => b?.id === bundleId);
       if (currentlyInstalled) {
         await deleteDoc(doc(db, "organizations", currentOrg.id, "modules", bundleId));
         setInstalled(prev => { const s = new Set(prev); s.delete(bundleId); return s; });
@@ -40,9 +40,9 @@ export default function ModulesPage() {
     } finally { setInstalling(null); }
   }
 
-  const installedList  = AI_BUNDLES.filter(b => installed.has(b.id));
-  const availableList  = AI_BUNDLES.filter(b => !installed.has(b.id) && (b.status === "available" || b.status === "beta"));
-  const comingSoonList = AI_BUNDLES.filter(b => !installed.has(b.id) && (b.status === "coming_soon" || b.status === "enterprise"));
+  const installedList  = (AI_BUNDLES as any[]).filter(Boolean).filter(b => installed.has(b.id));
+  const availableList  = (AI_BUNDLES as any[]).filter(Boolean).filter(b => !installed.has(b.id) && (b.status === "available" || b.status === "beta"));
+  const comingSoonList = (AI_BUNDLES as any[]).filter(Boolean).filter(b => !installed.has(b.id) && (b.status === "coming_soon" || b.status === "enterprise"));
 
   return (
     <div>
@@ -153,7 +153,7 @@ export default function ModulesPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {availableList.map(bundle => {
               const config   = MODULE_CONFIGS[bundle.id];
-              const statusDef = BUNDLE_STATUS_LABELS[bundle.status];
+              const statusDef = (BUNDLE_STATUS_LABELS as any)[bundle.status];
               const isInstalling = installing === bundle.id;
               return (
                 <div key={bundle.id}
