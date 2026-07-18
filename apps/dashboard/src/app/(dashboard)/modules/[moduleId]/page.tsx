@@ -331,6 +331,43 @@ export default function ModuleTestPage({ params }: { params: { moduleId: string 
               </button>
             )}
 
+            {/* 🔴 Enregistrer — toujours visible quand caméra active */}
+            {streaming && (
+              <button
+                onClick={async()=>{
+                  if(recording) return;
+                  const orgId = orgIdRef.current;
+                  const camId = camIdRef.current;
+                  if(!orgId||!camId){ setPipeLog("❌ Initialisez la caméra d'abord"); return; }
+                  const { doc:fd, collection:col, setDoc:sd } = await import("firebase/firestore");
+                  const { db:fdb } = await import("@/lib/firebase/client");
+                  const now = new Date().toISOString();
+                  const evId = fd(col(fdb,"_")).id;
+                  await sd(fd(fdb,"organizations",orgId,"events",evId),{
+                    id:evId, organizationId:orgId, cameraId:camId, siteId:"default",
+                    detectionIds:[], primaryType:"manual_recording",
+                    category:config?.sector??"manual", label:`Enregistrement ${config?.name??""}`,
+                    severity:"info", durationSeconds:0, thumbnailUrl:null,
+                    videoClipUrl:null, clipStatus:"recording",
+                    acknowledged:false, createdAt:now, updatedAt:now,
+                  });
+                  setPipeLog("🔴 Enregistrement 15s en cours...");
+                  const result = await startClip({organizationId:orgId,cameraId:camId,eventId:evId,durationSec:15});
+                  if(result) setPipeLog(`✅ Clip ${result.durationSeconds}s (${result.sizeKb}KB) → Storage`);
+                  else setPipeLog("⚠️ Clip vide");
+                }}
+                disabled={!streaming||recording}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors disabled:opacity-40 ${
+                  recording
+                    ? "border border-red-600 bg-red-900/20 text-red-300"
+                    : "bg-red-600 text-white hover:bg-red-700"
+                }`}>
+                {recording
+                  ? <><span className="h-2 w-2 animate-pulse rounded-full bg-red-400"/>⏹ REC en cours...</>
+                  : <>🔴 Enregistrer</>}
+              </button>
+            )}
+
             {/* Changer emplacement */}
             {(moduleId==="industrial"||moduleId==="construction") && (
               <button onClick={()=>setShowPicker(true)}

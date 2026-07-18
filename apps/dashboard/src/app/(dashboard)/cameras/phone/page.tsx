@@ -281,6 +281,40 @@ export default function PhoneCameraPage() {
               </button>
             )}
 
+            {/* 🔴 Enregistrer — toujours visible quand caméra active */}
+            {streaming && (
+              <button
+                onClick={async()=>{
+                  if(recording){ return; }
+                  if(!orgIdRef.current||!camIdRef.current){ setPipeLog("❌ Org/Cam non initialisée"); return; }
+                  const { doc:firestoreDoc, collection:col, setDoc:sd } = await import("firebase/firestore");
+                  const { db:fdb } = await import("@/lib/firebase/client");
+                  const now = new Date().toISOString();
+                  const evId = firestoreDoc(col(fdb,"_")).id;
+                  await sd(firestoreDoc(fdb,"organizations",orgIdRef.current,"events",evId),{
+                    id:evId, organizationId:orgIdRef.current, cameraId:camIdRef.current, siteId:"default",
+                    detectionIds:[], primaryType:"manual_recording", category:"human",
+                    label:"Enregistrement manuel", severity:"info", durationSeconds:0,
+                    thumbnailUrl:null, videoClipUrl:null, clipStatus:"recording",
+                    acknowledged:false, createdAt:now, updatedAt:now,
+                  });
+                  setPipeLog("🔴 Enregistrement démarré (15s)...");
+                  const result = await startClip({organizationId:orgIdRef.current,cameraId:camIdRef.current,eventId:evId,durationSec:15});
+                  if(result) setPipeLog(`✅ Clip ${result.durationSeconds}s (${result.sizeKb}KB) → Storage`);
+                  else setPipeLog("⚠️ Clip terminé sans résultat");
+                }}
+                disabled={!streaming||recording}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors disabled:opacity-40 ${
+                  recording
+                    ? "border border-red-600 bg-red-900/20 text-red-300"
+                    : "bg-red-600 text-white hover:bg-red-700"
+                }`}>
+                {recording
+                  ? <><span className="h-2 w-2 animate-pulse rounded-full bg-red-400"/>⏹ En cours...</>
+                  : <>🔴 Enregistrer</>}
+              </button>
+            )}
+
             {/* Changer emplacement */}
             <button onClick={()=>setShowPicker(true)}
               className="flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-xs text-slate-400 hover:text-white hover:border-slate-500">

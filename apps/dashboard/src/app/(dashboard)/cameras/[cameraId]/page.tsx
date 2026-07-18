@@ -10,6 +10,8 @@ import { DetectionOverlay } from "@/components/DetectionOverlay";
 import { useYoloDetection, type DetectionMode } from "@/lib/hooks/useYoloDetection";
 import { runDetectionPipeline } from "@/lib/services/pipelineService";
 import { STATUS_LABELS, STATUS_COLORS, CONNECTOR_LABELS } from "@/lib/services/cameraService";
+import { CameraControls } from "@/components/CameraControls";
+import { checkSetup } from "@/lib/services/setupService";
 import type { CameraDoc } from "@visionguard/shared";
 
 export default function CameraDetailPage() {
@@ -20,11 +22,17 @@ export default function CameraDetailPage() {
   const streamRef = useRef<MediaStream | null>(null);
 
   const [camera,    setCamera]    = useState<CameraDoc | null>(null);
+  const [stableOrgId, setStableOrgId] = useState<string|null>(null);
   const [loading,   setLoading]   = useState(true);
   const [events,    setEvents]    = useState<any[]>([]);
   const [detMode,   setDetMode]   = useState<DetectionMode>("off");
   const [streaming, setStreaming] = useState(false);
   const [saved,     setSaved]     = useState(0);
+
+  // Charger l'org stable
+  useEffect(()=>{
+    checkSetup().then(s=>{ if(s.organizationId) setStableOrgId(s.organizationId); });
+  },[]);
 
   // Charger la caméra en temps réel
   useEffect(() => {
@@ -160,43 +168,26 @@ export default function CameraDetailPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Flux vidéo */}
+        {/* Flux vidéo — CameraControls avec toggle avant/arrière + enregistrement */}
         <div className="lg:col-span-2 space-y-4">
+          {isPhone && (stableOrgId || currentOrg?.id) && (
+            <CameraControls
+              organizationId={stableOrgId ?? currentOrg?.id ?? ""}
+              cameraId={cameraId}
+              cameraName={camera.name}
+              showAI={true}
+              compact={false}
+            />
+          )}
+          {!isPhone && (
           <div className="relative aspect-video rounded-xl border border-slate-800 bg-black overflow-hidden">
-            {isPhone ? (
-              <>
-                <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-                <DetectionOverlay detections={detections} videoRef={videoRef} />
-                {streaming && (
-                  <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1">
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-                    <span className="text-xs text-white">LIVE</span>
-                  </div>
-                )}
-                {detMode !== "off" && (
-                  <div className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-2 py-1 text-xs">
-                    {isLoading ? <span className="text-brand">Chargement IA...</span>
-                     : modelReady ? <span className="text-emerald-400">🤖 {fps}fps · {detections.length} obj · {saved} sauvegardés</span>
-                     : <span className="text-slate-500">IA en attente</span>}
-                  </div>
-                )}
-                {!streaming && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                    <span className="text-4xl">📱</span>
-                    <button onClick={startWebcam} className="rounded-xl bg-brand px-6 py-2.5 text-sm font-medium">
-                      ▶ Démarrer la caméra
-                    </button>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex h-full items-center justify-center text-slate-600 text-sm">
-                {camera.streamUrl
-                  ? `Flux: ${camera.streamUrl.slice(0,50)}...`
-                  : "Connecter le flux RTSP via le Camera Connector Engine"}
-              </div>
-            )}
+            <div className="flex h-full items-center justify-center text-slate-600 text-sm">
+              {camera.streamUrl
+                ? `Flux: ${camera.streamUrl.slice(0,50)}...`
+                : "Connecter le flux RTSP via le Camera Connector Engine"}
+            </div>
           </div>
+          )}
 
           {/* Contrôles IA */}
           {isPhone && streaming && (
