@@ -1,27 +1,27 @@
-FROM python:3.11-slim
-
-# Dépendances système minimales
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libglib2.0-0 libgl1-mesa-glx libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+# Image ultralytics officielle — torch + YOLOv11 déjà installés
+# Pas besoin de tout télécharger pendant le build
+FROM ultralytics/ultralytics:latest-cpu
 
 WORKDIR /app
 
-# Copier requirements en premier (cache Docker)
+# Seulement nos packages supplémentaires (légers)
 COPY requirements.txt .
+RUN pip install --no-cache-dir \
+    fastapi==0.115.0 \
+    "uvicorn[standard]==0.30.6" \
+    python-multipart==0.0.9 \
+    firebase-admin==6.5.0 \
+    python-dotenv==1.0.1 \
+    pydantic==2.8.2 \
+    pydantic-settings==2.4.0 \
+    loguru==0.7.2 \
+    aiofiles==24.1.0 \
+    httpx==0.27.2 \
+    websockets==12.0
 
-# Installer sans cache pour réduire la taille
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-
-# Code source
+# Code
 COPY . .
-
-# Créer dossiers nécessaires
 RUN mkdir -p models logs
 
-# Port Railway (dynamique via $PORT)
 EXPOSE 8000
-
-# Démarrage
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}

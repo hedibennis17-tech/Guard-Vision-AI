@@ -1,36 +1,15 @@
-# ── Vision Guard AI Server — Requirements SLIM (Railway compatible) ──────────
-# Phase 1: Core (fonctionne sur Railway free tier)
-# Phase 2: GPU models (RunPod/GCP séparé)
+# Ces packages sont déjà dans l'image ultralytics:
+# torch, torchvision, ultralytics, opencv, numpy, Pillow
 
-# API
+# Nos ajouts uniquement:
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9
-websockets==12.0
-httpx==0.27.2
+firebase-admin==6.5.0
 python-dotenv==1.0.1
 pydantic==2.8.2
 pydantic-settings==2.4.0
 loguru==0.7.2
 aiofiles==24.1.0
-
-# Vision (léger)
-opencv-python-headless==4.10.0.84
-Pillow==10.4.0
-numpy==1.26.4
-
-# YOLOv11 + ByteTrack (ultralytics inclut tout)
-ultralytics==8.3.0
-
-# Firebase
-firebase-admin==6.5.0
-
-# Utils
-pytz==2024.1
-
-# ── OPTIONNEL — installer séparément si GPU dispo ────────────────────────────
-# paddlepaddle==2.6.1   # 1GB+ — trop lourd pour Railway free
-# paddleocr==2.8.1      # dépend de paddlepaddle
-# torch==2.3.1          # 2GB+ — Railway Pro ou GPU server
-# torchvision==0.18.1
-# openai-clip==1.0.1    # dépend de torch
+httpx==0.27.2
+websockets==12.0
