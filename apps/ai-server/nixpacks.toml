@@ -9,3 +9,4 @@ cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT"
 
 [variables]
 MISE_PYTHON_GITHUB_ATTESTATIONS = "false"
+ROBOFLOW_API_KEY = "9H5LTv4r2ToBc0cb0rh5"

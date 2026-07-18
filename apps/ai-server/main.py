@@ -12,6 +12,32 @@ from loguru import logger
 app = FastAPI(title="Vision Guard AI", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# ── Auto-train PPE au démarrage ─────────────────────────────────────────────
+@app.on_event("startup")
+async def startup_event():
+    import asyncio
+    asyncio.create_task(_auto_train_background())
+
+async def _auto_train_background():
+    """Lance l'entraînement PPE en background si models/ppe.pt absent"""
+    import asyncio
+    if os.path.exists("models/ppe.pt"):
+        logger.info("✅ models/ppe.pt présent")
+        return
+    logger.info("🏋️ Auto-train PPE démarré en arrière-plan...")
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _run_auto_train)
+    except Exception as e:
+        logger.error(f"Auto-train PPE error: {e}")
+
+def _run_auto_train():
+    try:
+        from ppe_training.auto_train import run
+        run()
+    except Exception as e:
+        logger.error(f"auto_train import error: {e}")
+
 # ── Firebase (lazy init) ──────────────────────────────────────────────────────
 _db = None
 
