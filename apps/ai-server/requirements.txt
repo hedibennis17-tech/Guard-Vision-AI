@@ -1,0 +1,52 @@
+# ── Vision Guard AI Server — Dependencies ─────────────────────────────────────
+
+# API Framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+websockets==12.0
+httpx==0.27.2
+
+# ── AI Models ──────────────────────────────────────────────────────────────────
+
+# YOLOv11 (ultralytics inclut YOLO, SAM, CLIP, FastSAM)
+ultralytics==8.3.0
+
+# Computer Vision
+opencv-python-headless==4.10.0.84
+Pillow==10.4.0
+numpy==1.26.4
+scipy==1.13.1
+
+# PaddleOCR (lecture plaques, texte, codes-barres)
+paddlepaddle==2.6.1
+paddleocr==2.8.1
+
+# ByteTrack (tracking multi-objets)
+# ByteTrack est intégré via ultralytics (BYTETracker)
+lap==0.4.0
+
+# CLIP (vision-langage)
+openai-clip==1.0.1
+torch==2.3.1
+torchvision==0.18.1
+
+# ── Firebase ──────────────────────────────────────────────────────────────────
+firebase-admin==6.5.0
+
+# ── Utils ─────────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+pydantic==2.8.2
+pydantic-settings==2.4.0
+loguru==0.7.2
+aiofiles==24.1.0
+python-jose==3.3.0
+pytz==2024.1
+
+# ── Image processing ──────────────────────────────────────────────────────────
+imageio==2.35.1
+scikit-image==0.24.0
+
+# ── Barcode / QR Code ─────────────────────────────────────────────────────────
+pyzbar==0.1.9
+qrcode==7.4.2
