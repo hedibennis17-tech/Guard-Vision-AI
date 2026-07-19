@@ -82,18 +82,22 @@ def get_db():
 async def startup():
     logger.info("🚀 Vision Guard AI Server v2.0 démarrage...")
     get_db()
-    # Copier ppe.pt depuis le repo vers models/ si présent
+    # Copier ppe.onnx et ppe.pt depuis le repo vers models/
     import shutil
     os.makedirs("models", exist_ok=True)
-    for src in ["ppe.pt", "/app/ppe.pt", "apps/ai-server/ppe.pt"]:
-        if os.path.exists(src) and not os.path.exists("models/ppe.pt"):
-            shutil.copy2(src, "models/ppe.pt")
-            logger.success(f"✅ models/ppe.pt copié depuis {src}")
-            break
-    if os.path.exists("models/ppe.pt"):
-        logger.success(f"✅ models/ppe.pt prêt ({os.path.getsize('models/ppe.pt')/1024/1024:.1f}MB)")
-    else:
-        logger.warning("⚠️ models/ppe.pt absent")
+    for fname, srcs in [
+        ("ppe.onnx", ["ppe.onnx", "/app/ppe.onnx"]),
+        ("ppe.pt",   ["ppe.pt",   "/app/ppe.pt"]),
+    ]:
+        dest = f"models/{fname}"
+        if not os.path.exists(dest):
+            for src in srcs:
+                if os.path.exists(src):
+                    shutil.copy2(src, dest)
+                    size = os.path.getsize(dest)/1024/1024
+                    logger.success(f"✅ {dest} copié depuis {src} ({size:.1f}MB)")
+                    break
+    logger.info(f"📂 models/: {os.listdir('models') if os.path.exists('models') else []}")
     logger.success("✅ Serveur prêt")
 
 async def _download_ppe_from_storage():
