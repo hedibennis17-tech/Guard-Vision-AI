@@ -214,35 +214,55 @@ async def _do_train():
         # Installer roboflow + ultralytics à la volée
         log("📦 Installation ultralytics + roboflow...")
         import subprocess, sys
-        subprocess.run([sys.executable,"-m","pip","install","ultralytics","roboflow","-q"],
+        subprocess.run([sys.executable,"-m","pip","install","ultralytics","-q"],
                       capture_output=True, timeout=300)
         log("✅ Packages installés")
 
-        # Télécharger dataset
-        from roboflow import Roboflow
-        rf = Roboflow(api_key=api_key)
-        log(f"🔑 Roboflow connecté")
+        # Télécharger dataset via HTTP direct (sans SDK Roboflow = sans libxcb)
+        import urllib.request, zipfile, io as _io
+        log("📥 Téléchargement dataset PPE via API directe...")
 
-        datasets = [
-            ("roboflow-universe-datasets","hard-hat-workers-cghgq",2),
-            ("roboflow-universe-datasets","ppe-detection-nf06a",4),
-            ("roboflow-100","construction-safety-gsnvb",2),
-            ("roboflow-universe-datasets","construction-site-safety-iabkl",1),
+        # Datasets PPE publics — téléchargement direct HTTP
+        download_urls = [
+            f"https://api.roboflow.com/roboflow-100/construction-safety-gsnvb/2/yolov8?api_key={api_key}",
+            f"https://api.roboflow.com/roboflow-universe-datasets/hard-hat-workers-cghgq/2/yolov8?api_key={api_key}",
+            f"https://api.roboflow.com/roboflow-universe-datasets/ppe-detection-nf06a/4/yolov8?api_key={api_key}",
+            f"https://api.roboflow.com/roboflow-universe-datasets/construction-site-safety-iabkl/1/yolov8?api_key={api_key}",
         ]
 
         location = None
-        for ws, proj, ver in datasets:
+        for api_url in download_urls:
             try:
-                log(f"📥 {ws}/{proj}...")
-                ds       = rf.workspace(ws).project(proj).version(ver).download("yolov8",location="ppe_ds")
-                location = ds.location
-                log(f"✅ Dataset: {location}")
+                # Étape 1: obtenir le lien de téléchargement
+                log(f"📡 {api_url.split('/')[4]}/{api_url.split('/')[5]}...")
+                req  = urllib.request.Request(api_url, headers={"User-Agent":"VisionGuard/2.0"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    info = json.loads(r.read())
+
+                dl_url = info.get("export",{}).get("link") or info.get("link")
+                if not dl_url:
+                    log(f"❌ Pas de lien: {str(info)[:100]}")
+                    continue
+
+                # Étape 2: télécharger le ZIP
+                log(f"📦 Téléchargement ZIP...")
+                with urllib.request.urlopen(dl_url, timeout=120) as r:
+                    zip_data = r.read()
+
+                # Étape 3: extraire
+                os.makedirs("ppe_ds", exist_ok=True)
+                with zipfile.ZipFile(_io.BytesIO(zip_data)) as z:
+                    z.extractall("ppe_ds")
+                location = "ppe_ds"
+                log(f"✅ Dataset extrait dans {location}")
+                log(f"   Fichiers: {os.listdir(location)[:10]}")
                 break
+
             except Exception as e:
-                log(f"❌ {proj}: {str(e)[:60]}")
+                log(f"❌ {str(e)[:80]}")
 
         if not location:
-            log("❌ Aucun dataset disponible"); return
+            log("❌ Aucun dataset téléchargé"); return
 
         yaml = os.path.join(location,"data.yaml")
         if not os.path.exists(yaml):
