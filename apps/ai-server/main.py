@@ -275,7 +275,7 @@ async def _do_train(model_size: str = "n"):
             log(f"❌ data.yaml absent. Fichiers: {files}"); return
 
         # ── Nettoyer les anciens fichiers yaml corrompus ────────────────────────
-        for old_f in ["ppe_ds/data_fixed.yaml","ppe_ds/data.yaml"]:
+        for old_f in ["ppe_ds/data_fixed.yaml"]:  # NE PAS supprimer data.yaml
             if os.path.exists(old_f):
                 os.remove(old_f)
                 log(f"🗑️ Supprimé: {old_f}")
