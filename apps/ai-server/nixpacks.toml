@@ -1,9 +1,10 @@
 [phases.setup]
-nixPkgs = ["python311", "libGL", "libglib", "tesseract", "zbar", "libxcb", "xorg.libX11", "xorg.libXext", "xorg.libXrender"]
+nixPkgs = ["python311", "libglib", "tesseract", "zbar"]
 
 [phases.install]
 cmds = [
-  "pip install --no-cache-dir -r requirements.txt"
+  "pip install --no-cache-dir -r requirements.txt",
+  "pip install opencv-python-headless --force-reinstall -q"
 ]
 
 [start]
