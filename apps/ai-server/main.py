@@ -188,16 +188,20 @@ def ppe_train_status():
         "env_vars":         {k:bool(v) for k,v in {"ROBOFLOW_API_KEY":os.environ.get("ROBOFLOW_API_KEY"),"FIREBASE_PROJECT_ID":os.environ.get("FIREBASE_PROJECT_ID")}.items()},
     }
 
+class TrainRequest(BaseModel):
+    model_size: str = "n"  # n=nano s=small m=medium l=large x=xlarge
+
 @app.post("/ppe/start-training")
-async def start_training():
+async def start_training(req: TrainRequest = TrainRequest()):
     global _train_running
     if _train_running:
         return {"status":"already_running","logs":_train_log[-5:]}
     import asyncio
-    asyncio.create_task(_do_train())
-    return {"status":"started","message":"Entraînement démarré en background","check":"/ppe/train-status"}
+    asyncio.create_task(_do_train(req.model_size))
+    model_name = {"n":"YOLOv11 Nano (rapide)","s":"YOLOv11 Small","m":"YOLOv11 Medium (recommandé)","l":"YOLOv11 Large","x":"YOLOv11 XLarge (précision max)"}.get(req.model_size,"YOLOv11n")
+    return {"status":"started","model":model_name,"message":f"Entraînement {model_name} démarré","check":"/ppe/train-status"}
 
-async def _do_train():
+async def _do_train(model_size: str = "n"):
     global _train_running, _train_log
     _train_running = True
     _train_log = []
@@ -270,6 +274,52 @@ async def _do_train():
             files = os.listdir(location) if os.path.exists(location) else []
             log(f"❌ data.yaml absent. Fichiers: {files}"); return
 
+        # ── Diagnostic et fix automatique du dataset ──────────────────────────
+        log("🔍 Vérification structure dataset...")
+        abs_location = os.path.abspath(location)
+
+        # Détecter les noms de dossiers (valid vs validation vs val)
+        val_name = None
+        for candidate in ["valid","val","validation"]:
+            if os.path.exists(os.path.join(abs_location, candidate)):
+                val_name = candidate; break
+
+        for split, name in [("train","train"),("valid", val_name or "valid"),("test","test")]:
+            path = os.path.join(abs_location, name or split)
+            img  = os.path.join(path,"images")
+            lbl  = os.path.join(path,"labels")
+            if os.path.exists(img):
+                count = len(os.listdir(img))
+                log(f"✅ {split}/images — {count} images")
+            else:
+                log(f"⚠️ {split}/images absent (cherché: {img})")
+            if os.path.exists(lbl):
+                log(f"✅ {split}/labels — OK")
+
+        # Lire et afficher le data.yaml original
+        with open(yaml) as f:
+            yaml_content = f.read()
+        log(f"📄 data.yaml original:\n{yaml_content[:300]}")
+
+        # Corriger automatiquement les chemins dans data.yaml
+        import re as _re
+        new_yaml = f"""path: {abs_location}
+train: train/images
+val: {val_name or "valid"}/images
+test: test/images
+"""
+        # Récupérer nc et names depuis le yaml original
+        nc_match    = _re.search(r"nc:\s*(\d+)", yaml_content)
+        names_match = _re.search(r"names:\s*([\s\S]+?)(?:\n\w|$)", yaml_content)
+        if nc_match:    new_yaml += f"nc: {nc_match.group(1)}\n"
+        if names_match: new_yaml += f"names:{names_match.group(1)}\n"
+
+        fixed_yaml = os.path.join(abs_location,"data_fixed.yaml")
+        with open(fixed_yaml,"w") as f:
+            f.write(new_yaml)
+        log(f"✅ data.yaml corrigé:\n{new_yaml[:300]}")
+        yaml = fixed_yaml
+
         # Forcer opencv-headless AVANT d'importer ultralytics (qui importe cv2→libGL)
         log("🔧 Configuration OpenCV headless...")
         import subprocess, sys
@@ -289,8 +339,12 @@ async def _do_train():
             _os.environ["QT_QPA_PLATFORM"] = "offscreen"
             _os.environ["MPLBACKEND"]      = "Agg"
             _os.environ["DISPLAY"]         = ""
-            m = YOLO("yolo11n.pt")
-            m.train(data=yaml,epochs=30,imgsz=640,batch=8,device="cpu",name="ppe_v1",verbose=False,plots=False)
+            model_file = f"yolo11{model_size}.pt"
+            epochs_map  = {"n":30,"s":50,"m":80,"l":100,"x":150}
+            epochs      = epochs_map.get(model_size, 30)
+            log(f"🤖 Modèle: {model_file} | {epochs} epochs")
+            m = YOLO(model_file)
+            m.train(data=yaml,epochs=epochs,imgsz=640,batch=8,device="cpu",name="ppe_v1",verbose=False,plots=False)
             best = "runs/detect/ppe_v1/weights/best.pt"
             if os.path.exists(best):
                 os.makedirs("models",exist_ok=True)

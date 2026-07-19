@@ -24,12 +24,23 @@ export default function PPETrainingPage() {
     return () => clearInterval(iv);
   }, []);
 
+  const [modelSize, setModelSize] = useState("n");
+
+  const MODEL_OPTIONS = [
+    {value:"n", label:"YOLOv11 Nano",   desc:"⚡ Rapide — test CPU ~2h",         epochs:30},
+    {value:"s", label:"YOLOv11 Small",  desc:"🔹 Bon compromis CPU ~4h",          epochs:50},
+    {value:"m", label:"YOLOv11 Medium", desc:"⭐ Recommandé production ~8h CPU",  epochs:80},
+    {value:"l", label:"YOLOv11 Large",  desc:"🔶 Haute précision GPU requis",     epochs:100},
+    {value:"x", label:"YOLOv11 XLarge", desc:"💎 Précision max GPU A100 requis", epochs:150},
+  ];
+
   async function startTraining() {
     setRunning(true);
     setLogs(["🚀 Démarrage de l'entraînement PPE..."]);
     try {
       const r = await fetch(`${SERVER}/ppe/start-training`, {
-        method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({model_size: modelSize})
       });
       const d = await r.json();
       setLogs(prev => [...prev, d.message || d.status || "✅ Lancé"]);
@@ -87,6 +98,30 @@ export default function PPETrainingPage() {
           <span className="text-xs text-slate-400">{status?.models_dir?.join(", ") || "vide"}</span>
         </div>
       </div>
+
+      {/* Sélecteur modèle */}
+      {!ppeReady && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <h3 className="text-xs font-bold text-slate-400 mb-3">CHOISIR LE MODÈLE</h3>
+          <div className="space-y-2">
+            {MODEL_OPTIONS.map(m => (
+              <button key={m.value} onClick={() => setModelSize(m.value)}
+                className={`w-full flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-colors ${
+                  modelSize===m.value ? "border-amber-500 bg-amber-900/20" : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                }`}>
+                <div>
+                  <p className="text-sm font-bold text-white">{m.label}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{m.desc}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-slate-500">{m.epochs} epochs</span>
+                  {modelSize===m.value && <span className="h-3 w-3 rounded-full bg-amber-500"/>}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Bouton principal */}
       {!ppeReady && (
