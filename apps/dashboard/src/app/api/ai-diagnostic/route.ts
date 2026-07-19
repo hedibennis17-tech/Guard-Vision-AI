@@ -6,18 +6,22 @@ async function checkServer() {
   if (!SERVER) return { online:false, info:null, ocr:null, ppe:null, shoplifting:null, ms:null };
   const start = Date.now();
   try {
-    const [rootRes, ocrRes, ppeRes, shopliftRes] = await Promise.allSettled([
+    const [rootRes, ocrRes, ppeRes, shopliftRes, ppeStatusRes] = await Promise.allSettled([
       fetch(`${SERVER}/`,                    { signal:AbortSignal.timeout(5000), cache:"no-store" }),
       fetch(`${SERVER}/ocr/status`,          { signal:AbortSignal.timeout(5000), cache:"no-store" }),
       fetch(`${SERVER}/detect/ppe/status`,   { signal:AbortSignal.timeout(5000), cache:"no-store" }),
       fetch(`${SERVER}/detect/shoplifting/status`, { signal:AbortSignal.timeout(5000), cache:"no-store" }),
+      fetch(`${SERVER}/ppe/train-status`,    { signal:AbortSignal.timeout(5000), cache:"no-store" }),
     ]);
 
-    const rootOk = rootRes.status==="fulfilled" && rootRes.value.ok;
-    const info   = rootOk ? await rootRes.value.json() : null;
-    const ocr    = ocrRes.status==="fulfilled"  && ocrRes.value.ok  ? await ocrRes.value.json()  : null;
-    const ppe    = ppeRes.status==="fulfilled"  && ppeRes.value.ok  ? await ppeRes.value.json()  : null;
-    const shop   = shopliftRes.status==="fulfilled" && shopliftRes.value.ok ? await shopliftRes.value.json() : null;
+    const rootOk    = rootRes.status==="fulfilled" && rootRes.value.ok;
+    const info      = rootOk ? await rootRes.value.json() : null;
+    const ocr       = ocrRes.status==="fulfilled"  && ocrRes.value.ok  ? await ocrRes.value.json()  : null;
+    const ppeDet    = ppeRes.status==="fulfilled"  && ppeRes.value.ok  ? await ppeRes.value.json()  : null;
+    const shop      = shopliftRes.status==="fulfilled" && shopliftRes.value.ok ? await shopliftRes.value.json() : null;
+    const ppeStatus = ppeStatusRes.status==="fulfilled" && ppeStatusRes.value.ok ? await ppeStatusRes.value.json() : null;
+    // Fusionner les infos PPE
+    const ppe = { ...(ppeDet||{}), ...(ppeStatus||{}), models_available: ppeDet?.models_available };
 
     return { online:rootOk, info, ocr, ppe, shoplifting:shop, ms:Date.now()-start };
   } catch {
