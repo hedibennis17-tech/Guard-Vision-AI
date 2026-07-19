@@ -118,24 +118,24 @@ export async function GET() {
     {
       id:"ppe_custom",
       name:"YOLOv11 PPE Custom (Casque/Gilet/Uniforme)",
-      icon: ppe?.ppe_pt_exists ? "🟢" : "🟡",
-      status: ppe?.ppe_pt_exists ? "running" : "not_deployed",
+      icon: ppe?.loaded ? "🟢" : ppe?.ppe_pt_exists ? "🟡" : "🔴",
+      status: ppe?.loaded ? "running" : ppe?.ppe_pt_exists ? "partial" : "not_deployed",
       where:"Serveur Railway",
-      deployed: !!(ppe?.ppe_pt_exists),
-      real_status: ppe?.ppe_pt_exists
-        ? "✅ ACTIF — ppe.onnx + ppe.pt chargés | mAP50: 92.3% | 997 images entraînement"
-        : "⏳ Railway rebuild en cours — ppe.onnx déployé, attendre 3 minutes",
-      detects:[
-        "helmet ✅ — casque détecté",
-        "no-helmet 🚨 — SANS CASQUE alerte critique",
-        "vest ✅ — gilet haute-vis détecté",
-        "no-vest 🚨 — SANS GILET alerte critique",
-        "person 👷 — travailleur détecté",
-      ],
-      limitation:"5 classes • 997 images • mAP50 92.3% • Entraîné sur dataset Construction Safety",
-      action: ppe?.ppe_pt_exists
+      deployed: !!(ppe?.loaded || ppe?.ppe_pt_exists),
+      real_status: ppe?.loaded
+        ? `✅ ACTIF en mode ${ppe?.mode?.toUpperCase()||"ONNX"} — mAP50: ${ppe?.accuracy||"92.3%"}`
+        : ppe?.ppe_pt_exists
+        ? "⏳ Fichier présent — chargement en cours"
+        : "❌ Modèle absent",
+      detects: ppe?.classes?.length
+        ? ppe.classes.map((c:string) => c.startsWith("no") || c.startsWith("no-")
+            ? `${c} 🚨 — ALERTE CRITIQUE`
+            : `${c} ✅ — détecté`)
+        : ["helmet ✅","no-helmet 🚨","vest ✅","no-vest 🚨","person 👷"],
+      limitation:`${ppe?.classes?.length||5} classes • ${ppe?.trained_on||"997 images"} • ${ppe?.accuracy||"mAP50 92.3%"}`,
+      action: ppe?.loaded
         ? "✅ Actif: Construction Safety + Industrial Safety + Defense Shield"
-        : "Railway rebuild en cours automatiquement",
+        : "Rebuild Railway en cours",
     },
     {
       id:"sam2",
