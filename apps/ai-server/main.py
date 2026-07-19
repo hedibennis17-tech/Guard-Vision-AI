@@ -302,22 +302,30 @@ async def _do_train(model_size: str = "n"):
         log(f"📄 data.yaml original:\n{yaml_content[:300]}")
 
         # Corriger automatiquement les chemins dans data.yaml
-        import re as _re
+        import re as _re, ast as _ast
+        nc_match    = _re.search(r"nc:\s*(\d+)", yaml_content)
+        nc          = int(nc_match.group(1)) if nc_match else 5
+        # Extraire la liste de noms proprement
+        names_match = _re.search(r"names:\s*(\[[^\]]+\])", yaml_content)
+        if names_match:
+            try:    names_list = _ast.literal_eval(names_match.group(1))
+            except: names_list = [n.strip().strip("'"") for n in names_match.group(1).strip("[]").split(",")]
+        else:
+            names_list = ["helmet","no-helmet","no-vest","person","vest"]
+        # Formater en YAML valide
+        names_yaml = "\n".join(f"  - {n}" for n in names_list)
         new_yaml = f"""path: {abs_location}
 train: train/images
 val: {val_name or "valid"}/images
 test: test/images
+nc: {nc}
+names:
+{names_yaml}
 """
-        # Récupérer nc et names depuis le yaml original
-        nc_match    = _re.search(r"nc:\s*(\d+)", yaml_content)
-        names_match = _re.search(r"names:\s*([\s\S]+?)(?:\n\w|$)", yaml_content)
-        if nc_match:    new_yaml += f"nc: {nc_match.group(1)}\n"
-        if names_match: new_yaml += f"names:{names_match.group(1)}\n"
-
         fixed_yaml = os.path.join(abs_location,"data_fixed.yaml")
         with open(fixed_yaml,"w") as f:
             f.write(new_yaml)
-        log(f"✅ data.yaml corrigé:\n{new_yaml[:300]}")
+        log(f"✅ data.yaml corrigé: {nc} classes: {names_list}")
         yaml = fixed_yaml
 
         # Forcer opencv-headless AVANT d'importer ultralytics (qui importe cv2→libGL)
