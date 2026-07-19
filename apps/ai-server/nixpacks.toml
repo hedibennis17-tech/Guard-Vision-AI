@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["python311", "libglib", "tesseract", "zbar"]
+nixPkgs = ["python311", "libglib", "libGL", "tesseract", "zbar"]
 
 [phases.install]
 cmds = [
@@ -15,4 +15,3 @@ MISE_PYTHON_GITHUB_ATTESTATIONS = "false"
 QT_QPA_PLATFORM = "offscreen"
 MPLBACKEND = "Agg"
 DISPLAY = ""
-OPENCV_IO_ENABLE_OPENEXR = "0"
