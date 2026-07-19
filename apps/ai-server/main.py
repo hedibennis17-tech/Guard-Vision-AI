@@ -225,6 +225,20 @@ async def ppe_download():
         os.makedirs("models", exist_ok=True)
         project_id = os.environ.get("FIREBASE_PROJECT_ID","ai-guard-vision-8ef41")
         # Essayer les deux noms de bucket possibles
+        # Initialiser Firebase Admin si pas encore fait
+        if not firebase_admin._apps:
+            creds_json = os.environ.get("FIREBASE_CREDENTIALS_JSON","")
+            import json as _json
+            from firebase_admin import credentials as fb_creds
+            cred = fb_creds.Certificate(_json.loads(creds_json)) if creds_json else fb_creds.ApplicationDefault()
+            firebase_admin.initialize_app(cred, {
+                "projectId":    project_id,
+                "storageBucket": f"{project_id}.firebasestorage.app",
+            })
+            log("✅ Firebase initialisé")
+        else:
+            log("✅ Firebase déjà initialisé")
+
         for bucket_name in [
             f"{project_id}.firebasestorage.app",
             f"{project_id}.appspot.com",
