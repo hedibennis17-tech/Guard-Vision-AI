@@ -566,10 +566,14 @@ class PPERequest(BaseModel):
 
 @app.post("/detect/ppe")
 def detect_ppe(req: PPERequest):
-    if not os.path.exists("models/ppe.pt"):
-        return {"error":"models/ppe.pt manquant","solution":"POST /ppe/start-training","deployed":False,"detections":[]}
+    # Vérifier modèle disponible
+    onnx_ok = any(os.path.exists(p) for p in ["models/ppe.onnx","ppe.onnx","/app/ppe.onnx"])
+    pt_ok   = any(os.path.exists(p) for p in ["models/ppe.pt","ppe.pt","/app/ppe.pt"])
+    if not onnx_ok and not pt_ok:
+        return {"error":"Modèle PPE absent","detections":[],"workers":[],"site_compliance":{"score":0}}
     try:
         from detection.ppe_detector import get_ppe_detector
+        from detection.ppe_engine   import enrich_detections
         from PIL import Image
         import numpy as np, io
         b64 = req.image
@@ -577,9 +581,37 @@ def detect_ppe(req: PPERequest):
         img  = np.array(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB"))
         det  = get_ppe_detector()
         dets = det.detect(img, req.sector, req.confidence)
-        return {"detections":dets,"count":len(dets),"alerts":[d for d in dets if d.get("alert")],"compliance":det.get_compliance_score(dets)}
+
+        # Enrichir avec association personne-EPI et conformité
+        result = enrich_detections(dets)
+
+        # Sauvegarder dans Firebase si demandé
+        if req.organization_id and req.camera_id and get_db():
+            db = get_db()
+            now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+            for worker in result["workers"]:
+                if not worker["compliant"]:
+                    ref = db.collection("organizations").document(req.organization_id)                             .collection("events").document()
+                    ref.set({
+                        "id":ref.id,"organizationId":req.organization_id,
+                        "cameraId":req.camera_id,"siteId":"default",
+                        "primaryType":"ppe_violation",
+                        "label":worker["label"],
+                        "category":"ppe","severity":"critical",
+                        "detectionIds":[],"durationSeconds":0,
+                        "thumbnailUrl":None,"videoClipUrl":None,
+                        "clipStatus":"pending","acknowledged":False,
+                        "source":"ppe_engine","sector":req.sector,
+                        "worker_id":worker["worker_id"],
+                        "compliance_score":worker["score"],
+                        "missing_items":worker["missing_items"],
+                        "createdAt":now,"updatedAt":now,
+                    })
+
+        return result
     except Exception as e:
-        return {"error":str(e),"detections":[]}
+        import traceback
+        return {"error":str(e),"trace":traceback.format_exc()[:500],"detections":[],"workers":[]}
 
 @app.get("/detect/ppe/status")
 def ppe_status():
