@@ -63,6 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
     { href:"/settings",       icon:"⚙️",  label:"Paramètres"    },
     { href:"/diagnostic",     icon:"🔧", label:"Diagnostic"     },
     { href:"/diagnostic/ai",  icon:"🔬", label:"Diagnostic IA"  },
+    { href:"/diagnostic/ppe", icon:"⛑️", label:"Entraîner PPE"   },
   ]},
 ];
 
