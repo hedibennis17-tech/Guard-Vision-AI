@@ -177,31 +177,33 @@ def detect(req: DetectRequest):
 # ── PPE Train Status ──────────────────────────────────────────────────────────
 @app.get("/ppe/train-status")
 def ppe_train_status():
-    import time
-    prog = _train_progress
-    elapsed = int(time.time() - prog["started_at"]) if prog.get("started_at") else 0
-    ep, tot = prog.get("epoch",0), prog.get("total",0)
-    remaining = 0
-    if ep > 0 and tot > 0 and elapsed > 0:
-        spe = elapsed / ep  # secondes par epoch
-        remaining = int(spe * (tot - ep))
-    return {
-        "version":          "2.0.0",
-        "ppe_pt_exists":    os.path.exists("models/ppe.pt"),
-        "training_running": _train_running,
-        "progress": {
-            "epoch":       ep,
-            "total_epochs":tot,
-            "percent":     prog.get("pct",0),
-            "loss":        prog.get("loss",0),
-            "map50":       prog.get("map50",0),
-            "elapsed_sec": elapsed,
-            "remaining_sec":remaining,
-        },
-        "last_logs":  _train_log[-30:],
-        "models_dir": os.listdir("models") if os.path.exists("models") else [],
-        "roboflow_key": bool(os.environ.get("ROBOFLOW_API_KEY")),
-    }
+    try:
+        import time
+        prog    = _train_progress or {}
+        start   = prog.get("started_at")
+        ep      = int(prog.get("epoch", 0))
+        tot     = int(prog.get("total", 0))
+        elapsed = int(time.time() - start) if start else 0
+        remaining = int((elapsed/ep)*(tot-ep)) if ep>0 and tot>0 and elapsed>0 else 0
+        return {
+            "version":          "2.0.0",
+            "ppe_pt_exists":    os.path.exists("models/ppe.pt"),
+            "training_running": bool(_train_running),
+            "progress": {
+                "epoch":        ep,
+                "total_epochs": tot,
+                "percent":      int(prog.get("pct", 0)),
+                "loss":         float(prog.get("loss", 0)),
+                "map50":        float(prog.get("map50", 0)),
+                "elapsed_sec":  elapsed,
+                "remaining_sec":remaining,
+            },
+            "last_logs":   list(_train_log[-30:]),
+            "models_dir":  os.listdir("models") if os.path.exists("models") else [],
+            "roboflow_key":bool(os.environ.get("ROBOFLOW_API_KEY")),
+        }
+    except Exception as e:
+        return {"version":"2.0.0","error":str(e),"ppe_pt_exists":False,"training_running":False,"progress":{},"last_logs":[],"models_dir":[]}
 
 class TrainRequest(BaseModel):
     model_size: str = "n"  # n=nano s=small m=medium l=large x=xlarge
