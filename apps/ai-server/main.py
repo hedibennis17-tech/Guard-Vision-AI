@@ -114,7 +114,7 @@ def get_onnx():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "timestamp": time.time()}
+    return {"status": "ok", "timestamp": time.time(), "version": "2.0.0", "endpoints": ["/ppe/train-status", "/ppe/start-training", "/detect/ppe", "/ocr/analyze"]}
 
 @app.get("/")
 def root():

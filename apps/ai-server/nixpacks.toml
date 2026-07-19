@@ -2,11 +2,10 @@
 nixPkgs = ["python311", "libGL", "libglib", "tesseract", "zbar"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = ["pip install --no-cache-dir -r requirements.txt"]
 
 [start]
-cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT --reload"
 
 [variables]
 MISE_PYTHON_GITHUB_ATTESTATIONS = "false"
-ROBOFLOW_API_KEY = "9H5LTv4r2ToBc0cb0rh5"
