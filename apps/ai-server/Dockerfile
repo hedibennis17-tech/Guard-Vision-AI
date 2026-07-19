@@ -1,23 +1,16 @@
 FROM python:3.11-slim
 
-# Toutes les libs système en une seule commande
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
-    tesseract-ocr \
-    tesseract-ocr-fra \
-    libzbar0 \
+    libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libgomp1 \
+    tesseract-ocr tesseract-ocr-fra libzbar0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
 
-# ultralytics installe opencv-python (avec GUI) — on le remplace par headless
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir opencv-python-headless --force-reinstall -q
+    pip uninstall opencv-python opencv-contrib-python -y -q || true && \
+    pip install --no-cache-dir opencv-python-headless==4.10.0.84 --force-reinstall
 
 COPY . .
 RUN mkdir -p models logs

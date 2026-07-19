@@ -2,7 +2,13 @@
 Vision Guard AI Server v2.0
 FastAPI + ONNX + Firebase + PPE Training + OCR
 """
-import time, json, os, base64
+# CRITIQUE: env vars headless AVANT tout import (cv2/ultralytics chargent libGL à l'import)
+import os
+os.environ["QT_QPA_PLATFORM"]   = "offscreen"
+os.environ["MPLBACKEND"]         = "Agg"
+os.environ["DISPLAY"]            = ""
+os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "0"
+import time, json, base64
 from typing import Optional, List, Dict
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -263,6 +269,13 @@ async def _do_train():
         if not os.path.exists(yaml):
             files = os.listdir(location) if os.path.exists(location) else []
             log(f"❌ data.yaml absent. Fichiers: {files}"); return
+
+        # Forcer opencv-headless AVANT d'importer ultralytics (qui importe cv2→libGL)
+        log("🔧 Configuration OpenCV headless...")
+        import subprocess, sys
+        subprocess.run([sys.executable,"-m","pip","uninstall","opencv-python","opencv-contrib-python","-y","-q"], capture_output=True, timeout=120)
+        subprocess.run([sys.executable,"-m","pip","install","opencv-python-headless","-q"], capture_output=True, timeout=180)
+        log("✅ OpenCV headless installé")
 
         # Entraîner
         log("🏋️ Entraînement YOLOv11n (30 epochs)...")
