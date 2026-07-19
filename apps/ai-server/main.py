@@ -67,7 +67,10 @@ def get_db():
             creds_json = os.environ.get("FIREBASE_CREDENTIALS_JSON","")
             project_id = os.environ.get("FIREBASE_PROJECT_ID","ai-guard-vision-8ef41")
             cred = credentials.Certificate(json.loads(creds_json)) if creds_json else credentials.ApplicationDefault()
-            firebase_admin.initialize_app(cred, {"projectId": project_id})
+            firebase_admin.initialize_app(cred, {
+                "projectId":    project_id,
+                "storageBucket": f"{project_id}.firebasestorage.app",
+            })
         _db = firestore.client()
         logger.success("✅ Firebase connecté")
     except Exception as e:
@@ -93,17 +96,26 @@ async def _download_ppe_from_storage():
         from firebase_admin import storage as fb_storage
         os.makedirs("models", exist_ok=True)
         project_id = os.environ.get("FIREBASE_PROJECT_ID","ai-guard-vision-8ef41")
-        bucket = fb_storage.bucket(f"{project_id}.firebasestorage.app")
+        bucket_name = f"{project_id}.firebasestorage.app"
+        logger.info(f"📥 Connexion Firebase Storage: {bucket_name}")
+        bucket = fb_storage.bucket(bucket_name)
         blob   = bucket.blob("ppe.pt")
-        if blob.exists():
-            logger.info("📥 Téléchargement ppe.pt depuis Firebase Storage...")
+        exists = blob.exists()
+        logger.info(f"   ppe.pt exists: {exists}")
+        if exists:
+            logger.info("📥 Téléchargement ppe.pt...")
             blob.download_to_filename("models/ppe.pt")
             size = os.path.getsize("models/ppe.pt") / 1024 / 1024
             logger.success(f"✅ models/ppe.pt téléchargé ({size:.1f}MB)")
         else:
-            logger.warning("⚠️ ppe.pt introuvable dans Firebase Storage")
+            logger.warning("⚠️ ppe.pt absent de Firebase Storage — vérifie le bucket")
+            # Log les fichiers disponibles
+            blobs = list(bucket.list_blobs())
+            logger.info(f"   Fichiers dans Storage: {[b.name for b in blobs]}")
     except Exception as e:
         logger.error(f"❌ Download ppe.pt: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 # ── ONNX Detector (lazy) ──────────────────────────────────────────────────────
 _onnx = None
