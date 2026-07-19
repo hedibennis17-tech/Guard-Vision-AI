@@ -19,12 +19,31 @@ async def startup_event():
     asyncio.create_task(_auto_train_background())
 
 async def _auto_train_background():
-    """Lance l'entraînement PPE en background si models/ppe.pt absent"""
+    """Au démarrage: essaie de récupérer ppe.pt depuis Firebase, sinon entraîne"""
     import asyncio
     if os.path.exists("models/ppe.pt"):
-        logger.info("✅ models/ppe.pt présent")
+        logger.info("✅ models/ppe.pt présent en local")
         return
-    logger.info("🏋️ Auto-train PPE démarré en arrière-plan...")
+
+    # Essai 1: Télécharger depuis Firebase Storage (si déjà entraîné avant)
+    try:
+        logger.info("📥 Recherche ppe.pt sur Firebase Storage...")
+        import firebase_admin
+        from firebase_admin import storage
+        bucket = storage.bucket(f"{os.environ.get('FIREBASE_PROJECT_ID','ai-guard-vision-8ef41')}.firebasestorage.app")
+        blob   = bucket.blob("models/ppe.pt")
+        if blob.exists():
+            os.makedirs("models", exist_ok=True)
+            blob.download_to_filename("models/ppe.pt")
+            logger.success("✅ ppe.pt téléchargé depuis Firebase Storage!")
+            return
+        else:
+            logger.info("ppe.pt pas encore sur Firebase Storage")
+    except Exception as e:
+        logger.warning(f"Firebase Storage: {e}")
+
+    # Essai 2: Lancer l'entraînement automatique
+    logger.info("🏋️ Démarrage auto-train PPE...")
     try:
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, _run_auto_train)
@@ -217,6 +236,159 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
 
+
+# ── PPE Training Status ──────────────────────────────────────────────────────
+
+_train_log: list = []
+_train_running: bool = False
+
+@app.get("/ppe/train-status")
+def ppe_train_status():
+    """Statut en temps réel de l'entraînement PPE"""
+    import os
+    return {
+        "ppe_pt_exists":    os.path.exists("models/ppe.pt"),
+        "construction_pt":  os.path.exists("models/ppe_construction.pt"),
+        "industrial_pt":    os.path.exists("models/ppe_industry.pt"),
+        "training_running": _train_running,
+        "last_logs":        _train_log[-20:],
+        "models_dir":       os.listdir("models") if os.path.exists("models") else [],
+        "roboflow_key_set": bool(os.environ.get("ROBOFLOW_API_KEY")),
+        "ultralytics_ok":   _check_ultralytics(),
+        "roboflow_ok":      _check_roboflow(),
+    }
+
+def _check_ultralytics():
+    try:
+        from ultralytics import YOLO
+        return True
+    except: return False
+
+def _check_roboflow():
+    try:
+        import roboflow
+        return True
+    except: return False
+
+@app.post("/ppe/start-training")
+async def start_ppe_training():
+    """Lance manuellement l'entraînement PPE"""
+    global _train_running
+    if _train_running:
+        return {"status": "already_running", "logs": _train_log[-5:]}
+    import asyncio
+    asyncio.create_task(_train_with_logs())
+    return {"status": "started", "check": "/ppe/train-status"}
+
+async def _train_with_logs():
+    global _train_running, _train_log
+    _train_running = True
+    _train_log = []
+
+    def log(msg):
+        _train_log.append(msg)
+        logger.info(msg)
+
+    try:
+        import os
+        log("🚀 Démarrage entraînement PPE")
+
+        # Vérifier ultralytics
+        try:
+            from ultralytics import YOLO
+            log("✅ ultralytics disponible")
+        except Exception as e:
+            log(f"❌ ultralytics non disponible: {e}")
+            return
+
+        # Vérifier roboflow
+        api_key = os.environ.get("ROBOFLOW_API_KEY", "9H5LTv4r2ToBc0cb0rh5")
+        try:
+            from roboflow import Roboflow
+            rf = Roboflow(api_key=api_key)
+            log(f"✅ Roboflow connecté (clé: {api_key[:8]}...)")
+        except Exception as e:
+            log(f"❌ Roboflow erreur: {e}")
+            return
+
+        # Télécharger dataset PPE
+        datasets_to_try = [
+            ("roboflow-universe-datasets", "hard-hat-workers-cghgq", 2),
+            ("roboflow-universe-datasets", "ppe-detection-nf06a", 4),
+            ("roboflow-universe-datasets", "construction-site-safety-iabkl", 1),
+            ("roboflow-100", "construction-safety-gsnvb", 2),
+        ]
+
+        dataset_location = None
+        for workspace, project, version in datasets_to_try:
+            try:
+                log(f"📥 Essai: {workspace}/{project} v{version}")
+                proj     = rf.workspace(workspace).project(project)
+                dataset  = proj.version(version).download("yolov8", location="ppe_dataset")
+                dataset_location = dataset.location
+                log(f"✅ Dataset téléchargé: {dataset_location}")
+                break
+            except Exception as e:
+                log(f"❌ {project}: {str(e)[:80]}")
+
+        if not dataset_location:
+            log("❌ Aucun dataset téléchargé")
+            return
+
+        # Entraîner
+        data_yaml = os.path.join(dataset_location, "data.yaml")
+        if not os.path.exists(data_yaml):
+            log(f"❌ data.yaml non trouvé dans {dataset_location}")
+            log(f"   Fichiers: {os.listdir(dataset_location)}")
+            return
+
+        import asyncio, subprocess
+        loop = asyncio.get_event_loop()
+
+        def do_train():
+            log("🏋️ Entraînement YOLOv11n (30 epochs CPU ~2h)...")
+            model = YOLO("yolo11n.pt")
+            model.train(
+                data=data_yaml, epochs=30, imgsz=640,
+                batch=8, device="cpu", name="ppe_v1",
+                verbose=False,
+            )
+            import shutil
+            best = "runs/detect/ppe_v1/weights/best.pt"
+            if os.path.exists(best):
+                os.makedirs("models", exist_ok=True)
+                shutil.copy2(best, "models/ppe.pt")
+                shutil.copy2(best, "models/ppe_construction.pt")
+                log("✅ models/ppe.pt créé!")
+
+                # Uploader sur Firebase Storage pour persistance
+                _save_to_firebase(best)
+            else:
+                log(f"❌ best.pt non trouvé après entraînement")
+
+        await loop.run_in_executor(None, do_train)
+
+    except Exception as e:
+        log(f"❌ Erreur: {e}")
+        import traceback
+        log(traceback.format_exc()[:500])
+    finally:
+        _train_running = False
+
+def _save_to_firebase(weights_path: str):
+    """Sauvegarde les poids sur Firebase Storage pour persistance"""
+    try:
+        import firebase_admin
+        from firebase_admin import storage
+        bucket = storage.bucket()
+        blob   = bucket.blob("models/ppe.pt")
+        blob.upload_from_filename(weights_path)
+        url = blob.public_url
+        _train_log.append(f"✅ Poids uploadés sur Firebase Storage")
+        return url
+    except Exception as e:
+        _train_log.append(f"⚠️ Firebase Storage: {e}")
+        return None
 
 # ── PPE Professional Detection ────────────────────────────────────────────────
 
