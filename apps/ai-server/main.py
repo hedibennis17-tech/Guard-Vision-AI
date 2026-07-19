@@ -79,7 +79,31 @@ def get_db():
 async def startup():
     logger.info("🚀 Vision Guard AI Server v2.0 démarrage...")
     get_db()
+    # Télécharger ppe.pt depuis Firebase Storage si absent
+    await _download_ppe_from_storage()
     logger.success("✅ Serveur prêt")
+
+async def _download_ppe_from_storage():
+    """Télécharge ppe.pt depuis Firebase Storage au démarrage"""
+    if os.path.exists("models/ppe.pt"):
+        logger.info("✅ models/ppe.pt déjà présent")
+        return
+    try:
+        import firebase_admin
+        from firebase_admin import storage as fb_storage
+        os.makedirs("models", exist_ok=True)
+        project_id = os.environ.get("FIREBASE_PROJECT_ID","ai-guard-vision-8ef41")
+        bucket = fb_storage.bucket(f"{project_id}.firebasestorage.app")
+        blob   = bucket.blob("ppe.pt")
+        if blob.exists():
+            logger.info("📥 Téléchargement ppe.pt depuis Firebase Storage...")
+            blob.download_to_filename("models/ppe.pt")
+            size = os.path.getsize("models/ppe.pt") / 1024 / 1024
+            logger.success(f"✅ models/ppe.pt téléchargé ({size:.1f}MB)")
+        else:
+            logger.warning("⚠️ ppe.pt introuvable dans Firebase Storage")
+    except Exception as e:
+        logger.error(f"❌ Download ppe.pt: {e}")
 
 # ── ONNX Detector (lazy) ──────────────────────────────────────────────────────
 _onnx = None
