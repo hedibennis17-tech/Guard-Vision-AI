@@ -212,6 +212,44 @@ def detect(req: DetectRequest):
         return {"detections":[],"count":0,"error":str(e)}
 
 # ── PPE Train Status ──────────────────────────────────────────────────────────
+@app.get("/ppe/download")
+async def ppe_download():
+    """Force le téléchargement de ppe.pt depuis Firebase Storage"""
+    logs = []
+    def log(msg):
+        logs.append(msg)
+        logger.info(msg)
+    try:
+        import firebase_admin
+        from firebase_admin import storage as fb_storage
+        os.makedirs("models", exist_ok=True)
+        project_id = os.environ.get("FIREBASE_PROJECT_ID","ai-guard-vision-8ef41")
+        # Essayer les deux noms de bucket possibles
+        for bucket_name in [
+            f"{project_id}.firebasestorage.app",
+            f"{project_id}.appspot.com",
+        ]:
+            try:
+                log(f"🔍 Essai bucket: {bucket_name}")
+                bucket = fb_storage.bucket(bucket_name)
+                blobs  = list(bucket.list_blobs(max_results=20))
+                log(f"📂 Fichiers: {[b.name for b in blobs]}")
+                blob = bucket.blob("ppe.pt")
+                if blob.exists():
+                    log("📥 Téléchargement ppe.pt...")
+                    blob.download_to_filename("models/ppe.pt")
+                    size = os.path.getsize("models/ppe.pt")/1024/1024
+                    log(f"✅ ppe.pt téléchargé ({size:.1f}MB)")
+                    return {"success":True,"logs":logs,"size_mb":round(size,1)}
+                else:
+                    log(f"❌ ppe.pt absent dans {bucket_name}")
+            except Exception as e:
+                log(f"❌ {bucket_name}: {e}")
+        return {"success":False,"logs":logs}
+    except Exception as e:
+        import traceback
+        return {"success":False,"error":str(e),"trace":traceback.format_exc(),"logs":logs}
+
 @app.get("/ppe/train-status")
 def ppe_train_status():
     try:
