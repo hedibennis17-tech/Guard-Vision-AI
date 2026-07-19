@@ -31,7 +31,42 @@ export default function DiagPage() {
   const [data,    setData]    = useState<DiagData|null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string|null>(null);
-  const [filter,  setFilter]  = useState<"all"|"active"|"missing">("all");
+  const [filter,     setFilter]     = useState<"all"|"active"|"missing">("all");
+  const [ppeTraining, setPpeTraining] = useState(false);
+  const [ppeLogs,     setPpeLogs]     = useState<string[]>([]);
+  const [showPpeLogs, setShowPpeLogs] = useState(false);
+
+  async function startPpeTraining() {
+    const serverUrl = process.env.NEXT_PUBLIC_AI_SERVER_URL;
+    if (!serverUrl) { alert("NEXT_PUBLIC_AI_SERVER_URL non configuré dans Vercel"); return; }
+    setPpeTraining(true);
+    setPpeLogs(["🚀 Démarrage entraînement PPE..."]);
+    setShowPpeLogs(true);
+    try {
+      await fetch(`${serverUrl}/ppe/start-training`, { method:"POST" });
+      // Poller les logs toutes les 10 secondes
+      const interval = setInterval(async () => {
+        try {
+          const r = await fetch(`${serverUrl}/ppe/train-status`, { cache:"no-store" });
+          const d = await r.json();
+          setPpeLogs(d.last_logs ?? []);
+          if (d.ppe_pt_exists) {
+            clearInterval(interval);
+            setPpeTraining(false);
+            setPpeLogs(prev => [...prev, "✅ ppe.pt créé! Rechargez le diagnostic."]);
+            run(); // Refresh diagnostic
+          }
+          if (!d.training_running && !d.ppe_pt_exists) {
+            clearInterval(interval);
+            setPpeTraining(false);
+          }
+        } catch {}
+      }, 10000);
+    } catch(e:any) {
+      setPpeLogs([`❌ Erreur: ${e.message}`]);
+      setPpeTraining(false);
+    }
+  }
 
   async function run() {
     setLoading(true); setError(null);
@@ -161,6 +196,28 @@ export default function DiagPage() {
           </div>
         </div>
       )}
+
+      {/* PPE Training */}
+      <div className="rounded-xl border border-amber-800/40 bg-amber-900/10 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-bold text-amber-400">🏋️ Entraîner YOLOv11 PPE Custom</h3>
+            <p className="text-xs text-slate-400 mt-0.5">Lance le téléchargement dataset Roboflow + entraînement sur Railway</p>
+          </div>
+          <button onClick={startPpeTraining} disabled={ppeTraining || data?.models?.find(m=>m.id==="ppe_custom")?.deployed}
+            className="shrink-0 rounded-xl px-4 py-2 text-sm font-bold text-white disabled:opacity-50 transition-colors"
+            style={{background: ppeTraining ? "#6B7280" : "#F59E0B"}}>
+            {ppeTraining ? "⏳ En cours..." : "▶ Lancer"}
+          </button>
+        </div>
+        {ppeLogs.length > 0 && (
+          <div className="rounded-lg bg-black/40 p-3 font-mono text-xs space-y-1 max-h-40 overflow-y-auto">
+            {ppeLogs.map((l,i) => (
+              <p key={i} className={l.startsWith("✅")||l.startsWith("🎉") ? "text-emerald-400" : l.startsWith("❌") ? "text-red-400" : "text-slate-300"}>{l}</p>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Filtres */}
       <div className="flex gap-2 flex-wrap">
