@@ -274,6 +274,12 @@ async def _do_train(model_size: str = "n"):
             files = os.listdir(location) if os.path.exists(location) else []
             log(f"❌ data.yaml absent. Fichiers: {files}"); return
 
+        # ── Nettoyer les anciens fichiers yaml corrompus ────────────────────────
+        for old_f in ["ppe_ds/data_fixed.yaml","ppe_ds/data.yaml"]:
+            if os.path.exists(old_f):
+                os.remove(old_f)
+                log(f"🗑️ Supprimé: {old_f}")
+
         # ── Diagnostic et fix automatique du dataset ──────────────────────────
         log("🔍 Vérification structure dataset...")
         abs_location = os.path.abspath(location)
