@@ -20,8 +20,9 @@ app = FastAPI(title="Vision Guard AI", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ── Training state ────────────────────────────────────────────────────────────
-_train_log:     list = []
-_train_running: bool = False
+_train_log:      list = []
+_train_running:  bool = False
+_train_progress: dict = {"epoch":0,"total":0,"loss":0.0,"map50":0.0,"pct":0,"started_at":None}
 
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health")
