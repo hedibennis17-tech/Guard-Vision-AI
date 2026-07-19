@@ -177,15 +177,30 @@ def detect(req: DetectRequest):
 # ── PPE Train Status ──────────────────────────────────────────────────────────
 @app.get("/ppe/train-status")
 def ppe_train_status():
+    import time
+    prog = _train_progress
+    elapsed = int(time.time() - prog["started_at"]) if prog.get("started_at") else 0
+    ep, tot = prog.get("epoch",0), prog.get("total",0)
+    remaining = 0
+    if ep > 0 and tot > 0 and elapsed > 0:
+        spe = elapsed / ep  # secondes par epoch
+        remaining = int(spe * (tot - ep))
     return {
         "version":          "2.0.0",
         "ppe_pt_exists":    os.path.exists("models/ppe.pt"),
-        "onnx_exists":      os.path.exists("models/yolo11n.onnx"),
         "training_running": _train_running,
-        "last_logs":        _train_log[-20:],
-        "models_dir":       os.listdir("models") if os.path.exists("models") else [],
-        "roboflow_key":     bool(os.environ.get("ROBOFLOW_API_KEY")),
-        "env_vars":         {k:bool(v) for k,v in {"ROBOFLOW_API_KEY":os.environ.get("ROBOFLOW_API_KEY"),"FIREBASE_PROJECT_ID":os.environ.get("FIREBASE_PROJECT_ID")}.items()},
+        "progress": {
+            "epoch":       ep,
+            "total_epochs":tot,
+            "percent":     prog.get("pct",0),
+            "loss":        prog.get("loss",0),
+            "map50":       prog.get("map50",0),
+            "elapsed_sec": elapsed,
+            "remaining_sec":remaining,
+        },
+        "last_logs":  _train_log[-30:],
+        "models_dir": os.listdir("models") if os.path.exists("models") else [],
+        "roboflow_key": bool(os.environ.get("ROBOFLOW_API_KEY")),
     }
 
 class TrainRequest(BaseModel):
@@ -366,22 +381,34 @@ async def _do_train(model_size: str = "n"):
             m = YOLO(model_file)
 
             def on_epoch_end(trainer):
+                global _train_progress
                 ep  = trainer.epoch + 1
                 tot = trainer.epochs
                 pct = int(ep/tot*100)
                 bar = "█"*int(pct/5) + "░"*(20-int(pct/5))
-                try:
-                    loss = f"{float(trainer.loss):.4f}"
-                except:
-                    loss = "..."
+                try:    loss = round(float(trainer.loss), 4)
+                except: loss = 0
+                _train_progress = {"epoch":ep,"total":tot,"loss":loss,"pct":pct,"map50":0,"started_at":_train_progress.get("started_at")}
                 log(f"Epoch {ep}/{tot} |{bar}| {pct}% loss:{loss}")
 
+            def on_train_start(trainer):
+                global _train_progress
+                import time
+                _train_progress["started_at"] = time.time()
+                _train_progress["total"] = trainer.epochs
+
             def on_end(trainer):
+                global _train_progress
                 log("🏁 Entraînement terminé!")
                 try:
                     m2 = trainer.metrics
-                    log(f"📊 mAP50:{m2.get('metrics/mAP50(B)',0):.3f}")
+                    mp = round(m2.get("metrics/mAP50(B)",0), 3)
+                    _train_progress["map50"] = mp
+                    _train_progress["pct"]   = 100
+                    log(f"📊 mAP50:{mp}")
                 except: pass
+
+            m.add_callback("on_train_start", on_train_start)
 
             m.add_callback("on_train_epoch_end", on_epoch_end)
             m.add_callback("on_train_end", on_end)
