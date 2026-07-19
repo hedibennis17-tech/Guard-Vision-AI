@@ -211,12 +211,7 @@ async def _do_train():
         log("🚀 Démarrage entraînement PPE")
         api_key = os.environ.get("ROBOFLOW_API_KEY","9H5LTv4r2ToBc0cb0rh5")
 
-        # Installer roboflow + ultralytics à la volée
-        log("📦 Installation ultralytics + roboflow...")
-        import subprocess, sys
-        subprocess.run([sys.executable,"-m","pip","install","ultralytics","-q"],
-                      capture_output=True, timeout=300)
-        log("✅ Packages installés")
+        log("✅ Packages prêts (ultralytics installé au build)")
 
         # Télécharger dataset via HTTP direct (sans SDK Roboflow = sans libxcb)
         import urllib.request, zipfile, io as _io
