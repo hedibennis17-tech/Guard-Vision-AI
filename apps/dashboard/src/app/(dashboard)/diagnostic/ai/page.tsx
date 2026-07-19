@@ -68,14 +68,20 @@ export default function DiagPage() {
     }
   }
 
+  const [ppeStatus, setPpeStatus] = useState<any>(null);
+
   async function run() {
     setLoading(true); setError(null);
     try {
-      const r = await fetch("/api/ai-diagnostic", { cache:"no-store" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const json = await r.json();
+      const [diagRes, ppeRes] = await Promise.all([
+        fetch("/api/ai-diagnostic", { cache:"no-store" }),
+        fetch("/api/ppe", { cache:"no-store" }),
+      ]);
+      if (!diagRes.ok) throw new Error(`HTTP ${diagRes.status}`);
+      const json = await diagRes.json();
       if (!json.models) throw new Error("Format de réponse invalide");
       setData(json);
+      if (ppeRes.ok) { const p = await ppeRes.json(); setPpeStatus(p); }
     } catch(e:any) {
       setError(e.message ?? "Erreur inconnue");
     } finally {
@@ -147,6 +153,30 @@ export default function DiagPage() {
           </div>
         )}
       </div>
+
+      {/* PPE Status temps réel */}
+      {ppeStatus && (
+        <div className={`rounded-xl border p-4 ${ppeStatus.ppe_pt_exists?"border-emerald-700 bg-emerald-900/15":"border-red-800/40 bg-red-900/10"}`}>
+          <div className="flex items-center gap-3">
+            <span className={`h-4 w-4 rounded-full shrink-0 ${ppeStatus.ppe_pt_exists?"bg-emerald-400":"bg-red-500"}`}/>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-white">
+                {ppeStatus.ppe_pt_exists
+                  ? "✅ YOLOv11 PPE Custom — ACTIF (mAP50: 92.3%)"
+                  : "🔴 YOLOv11 PPE Custom — models/ppe.pt absent"}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {ppeStatus.ppe_pt_exists
+                  ? "helmet ✅ / no_helmet 🚨 / safety_vest ✅ / no_vest 🚨 / person 👷"
+                  : "Uploader ppe.pt sur GitHub → apps/ai-server/"}
+              </p>
+            </div>
+            <span className="text-xs text-slate-500 shrink-0">
+              {ppeStatus.models_dir?.join(", ")||"vide"}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Compteurs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
