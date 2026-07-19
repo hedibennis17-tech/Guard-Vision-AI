@@ -249,8 +249,13 @@ async def _do_train():
         loop = asyncio.get_event_loop()
 
         def train():
+            # Mode headless obligatoire sur Railway
+            import os as _os
+            _os.environ["QT_QPA_PLATFORM"] = "offscreen"
+            _os.environ["MPLBACKEND"]      = "Agg"
+            _os.environ["DISPLAY"]         = ""
             m = YOLO("yolo11n.pt")
-            m.train(data=yaml,epochs=30,imgsz=640,batch=8,device="cpu",name="ppe_v1",verbose=False)
+            m.train(data=yaml,epochs=30,imgsz=640,batch=8,device="cpu",name="ppe_v1",verbose=False,plots=False)
             best = "runs/detect/ppe_v1/weights/best.pt"
             if os.path.exists(best):
                 os.makedirs("models",exist_ok=True)

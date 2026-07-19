@@ -1,11 +1,14 @@
 [phases.setup]
-nixPkgs = ["python311", "libGL", "libglib", "tesseract", "zbar"]
+nixPkgs = ["python311", "libGL", "libglib", "tesseract", "zbar", "libxcb", "xorg.libX11"]
 
 [phases.install]
 cmds = ["pip install --no-cache-dir -r requirements.txt"]
 
 [start]
-cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT --reload"
+cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT"
 
 [variables]
 MISE_PYTHON_GITHUB_ATTESTATIONS = "false"
+QT_QPA_PLATFORM = "offscreen"
+DISPLAY = ""
+MPLBACKEND = "Agg"
