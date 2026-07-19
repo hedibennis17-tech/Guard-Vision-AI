@@ -82,8 +82,18 @@ def get_db():
 async def startup():
     logger.info("🚀 Vision Guard AI Server v2.0 démarrage...")
     get_db()
-    # Télécharger ppe.pt depuis Firebase Storage si absent
-    await _download_ppe_from_storage()
+    # Copier ppe.pt depuis le repo vers models/ si présent
+    import shutil
+    os.makedirs("models", exist_ok=True)
+    for src in ["ppe.pt", "/app/ppe.pt", "apps/ai-server/ppe.pt"]:
+        if os.path.exists(src) and not os.path.exists("models/ppe.pt"):
+            shutil.copy2(src, "models/ppe.pt")
+            logger.success(f"✅ models/ppe.pt copié depuis {src}")
+            break
+    if os.path.exists("models/ppe.pt"):
+        logger.success(f"✅ models/ppe.pt prêt ({os.path.getsize('models/ppe.pt')/1024/1024:.1f}MB)")
+    else:
+        logger.warning("⚠️ models/ppe.pt absent")
     logger.success("✅ Serveur prêt")
 
 async def _download_ppe_from_storage():
