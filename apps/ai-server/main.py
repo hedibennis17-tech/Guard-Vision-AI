@@ -362,9 +362,30 @@ async def _do_train(model_size: str = "n"):
             model_file = f"yolo11{model_size}.pt"
             epochs_map  = {"n":30,"s":50,"m":80,"l":100,"x":150}
             epochs      = epochs_map.get(model_size, 30)
-            log(f"🤖 Modèle: {model_file} | {epochs} epochs")
+            log(f"🤖 Modèle: {model_file} | {epochs} epochs | CPU Railway")
             m = YOLO(model_file)
-            m.train(data=yaml,epochs=epochs,imgsz=640,batch=8,device="cpu",name="ppe_v1",verbose=False,plots=False)
+
+            def on_epoch_end(trainer):
+                ep  = trainer.epoch + 1
+                tot = trainer.epochs
+                pct = int(ep/tot*100)
+                bar = "█"*int(pct/5) + "░"*(20-int(pct/5))
+                try:
+                    loss = f"{float(trainer.loss):.4f}"
+                except:
+                    loss = "..."
+                log(f"Epoch {ep}/{tot} |{bar}| {pct}% loss:{loss}")
+
+            def on_end(trainer):
+                log("🏁 Entraînement terminé!")
+                try:
+                    m2 = trainer.metrics
+                    log(f"📊 mAP50:{m2.get('metrics/mAP50(B)',0):.3f}")
+                except: pass
+
+            m.add_callback("on_train_epoch_end", on_epoch_end)
+            m.add_callback("on_train_end", on_end)
+            m.train(data=yaml,epochs=epochs,imgsz=640,batch=8,device="cpu",name="ppe_v1",verbose=True,plots=False)
             best = "runs/detect/ppe_v1/weights/best.pt"
             if os.path.exists(best):
                 os.makedirs("models",exist_ok=True)
