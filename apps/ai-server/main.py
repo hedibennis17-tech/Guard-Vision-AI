@@ -369,58 +369,73 @@ async def _do_train(model_size: str = "n"):
         loop = asyncio.get_event_loop()
 
         def train():
-            # Mode headless obligatoire sur Railway
-            import os as _os
-            _os.environ["QT_QPA_PLATFORM"] = "offscreen"
-            _os.environ["MPLBACKEND"]      = "Agg"
-            _os.environ["DISPLAY"]         = ""
+            import subprocess, sys, time as _time, json as _json
             model_file = f"yolo11{model_size}.pt"
-            epochs_map  = {"n":30,"s":50,"m":80,"l":100,"x":150}
-            epochs      = epochs_map.get(model_size, 30)
-            log(f"🤖 Modèle: {model_file} | {epochs} epochs | CPU Railway")
-            m = YOLO(model_file)
+            epochs_map = {"n":30,"s":50,"m":80,"l":100,"x":150}
+            epochs     = epochs_map.get(model_size, 30)
+            log(f"🤖 Modèle: {model_file} | {epochs} epochs | batch=4 (faible RAM)")
 
-            def on_epoch_end(trainer):
-                global _train_progress
-                ep  = trainer.epoch + 1
-                tot = trainer.epochs
-                pct = int(ep/tot*100)
-                bar = "█"*int(pct/5) + "░"*(20-int(pct/5))
-                try:    loss = round(float(trainer.loss), 4)
-                except: loss = 0
-                _train_progress = {"epoch":ep,"total":tot,"loss":loss,"pct":pct,"map50":0,"started_at":_train_progress.get("started_at")}
-                log(f"Epoch {ep}/{tot} |{bar}| {pct}% loss:{loss}")
-
-            def on_train_start(trainer):
-                global _train_progress
-                import time
-                _train_progress["started_at"] = time.time()
-                _train_progress["total"] = trainer.epochs
-
-            def on_end(trainer):
-                global _train_progress
-                log("🏁 Entraînement terminé!")
-                try:
-                    m2 = trainer.metrics
-                    mp = round(m2.get("metrics/mAP50(B)",0), 3)
-                    _train_progress["map50"] = mp
-                    _train_progress["pct"]   = 100
-                    log(f"📊 mAP50:{mp}")
-                except: pass
-
-            m.add_callback("on_train_start", on_train_start)
-
-            m.add_callback("on_train_epoch_end", on_epoch_end)
-            m.add_callback("on_train_end", on_end)
-            m.train(data=yaml,epochs=epochs,imgsz=640,batch=8,device="cpu",name="ppe_v1",verbose=True,plots=False)
-            best = "runs/detect/ppe_v1/weights/best.pt"
-            if os.path.exists(best):
-                os.makedirs("models",exist_ok=True)
-                shutil.copy2(best,"models/ppe.pt")
-                shutil.copy2(best,"models/ppe_construction.pt")
-                log("✅ models/ppe.pt créé!")
-            else:
-                log("❌ best.pt introuvable après entraînement")
+            # Script séparé = serveur FastAPI reste actif même si OOM
+            script = f'''
+import os,sys,shutil,json,time
+os.environ["QT_QPA_PLATFORM"]="offscreen"
+os.environ["MPLBACKEND"]="Agg"
+os.environ["DISPLAY"]=""
+from ultralytics import YOLO
+model = YOLO("{model_file}")
+def on_epoch(trainer):
+    ep=trainer.epoch+1; tot=trainer.epochs
+    try: loss=round(float(trainer.loss),4)
+    except: loss=0
+    pct=int(ep/tot*100)
+    bar="█"*int(pct/5)+"░"*(20-int(pct/5))
+    print(f"EPOCH {{ep}}/{{tot}} {{pct}} {{loss}}", flush=True)
+def on_end(trainer):
+    try:
+        mp=round(trainer.metrics.get("metrics/mAP50(B)",0),3)
+        print(f"DONE {{mp}}", flush=True)
+    except: print("DONE 0", flush=True)
+model.add_callback("on_train_epoch_end",on_epoch)
+model.add_callback("on_train_end",on_end)
+model.train(data="{yaml}",epochs={epochs},imgsz=640,batch=4,device="cpu",name="ppe_v1",verbose=False,plots=False,workers=1)
+best="runs/detect/ppe_v1/weights/best.pt"
+if os.path.exists(best):
+    os.makedirs("models",exist_ok=True)
+    shutil.copy2(best,"models/ppe.pt")
+    print("SAVED", flush=True)
+'''
+            with open("/tmp/ppe_train.py","w") as f: f.write(script)
+            log("🔀 Subprocess séparé lancé (serveur reste actif)...")
+            start = _time.time()
+            proc  = subprocess.Popen([sys.executable,"/tmp/ppe_train.py"],
+                      stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
+            for line in proc.stdout:
+                line = line.strip()
+                if not line: continue
+                if line.startswith("EPOCH"):
+                    parts = line.split()
+                    try:
+                        ep,tot = parts[1].split("/"); pct=int(parts[2]); loss=float(parts[3])
+                        ep,tot = int(ep),int(tot)
+                        bar = "█"*int(pct/5)+"░"*(20-int(pct/5))
+                        elapsed = int(_time.time()-start)
+                        rem = int((elapsed/ep)*(tot-ep)) if ep>0 else 0
+                        eta = f"{rem//3600}h{(rem%3600)//60:02d}m" if rem>3600 else f"{rem//60}m{rem%60:02d}s"
+                        global _train_progress
+                        _train_progress = {"epoch":ep,"total":tot,"loss":loss,"pct":pct,"map50":0,"started_at":start}
+                        log(f"Epoch {ep}/{tot} |{bar}| {pct}% loss:{loss} ETA:{eta}")
+                    except: log(line)
+                elif line.startswith("DONE"):
+                    try: mp=float(line.split()[1]); _train_progress["map50"]=mp; _train_progress["pct"]=100
+                    except: pass
+                    log(f"🏁 Terminé! mAP50:{_train_progress.get('map50',0)}")
+                elif line.startswith("SAVED"):
+                    log("✅ models/ppe.pt créé!")
+                elif "error" in line.lower() or "Error" in line:
+                    log(f"⚠️ {line[:120]}")
+            proc.wait()
+            code = proc.returncode
+            if code != 0: log(f"❌ Processus terminé code={code}")
 
         await loop.run_in_executor(None, train)
 
