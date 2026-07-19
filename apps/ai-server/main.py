@@ -195,6 +195,13 @@ async def _do_train():
     global _train_running, _train_log
     _train_running = True
     _train_log = []
+    # CRITIQUE: forcer headless AVANT tout import ultralytics/cv2/matplotlib
+    import os as _env
+    _env.environ["QT_QPA_PLATFORM"]  = "offscreen"
+    _env.environ["MPLBACKEND"]        = "Agg"
+    _env.environ["DISPLAY"]           = ""
+    _env.environ["OPENCV_IO_ENABLE_OPENEXR"] = "0"
+    _env.environ["QT_DEBUG_PLUGINS"] = "0"
 
     def log(msg):
         _train_log.append(f"{time.strftime('%H:%M:%S')} {msg}")
