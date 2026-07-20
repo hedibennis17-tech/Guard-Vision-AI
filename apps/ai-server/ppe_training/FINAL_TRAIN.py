@@ -42,22 +42,17 @@ print(f"✅ Roboflow connecté")
 
 # ── Datasets à télécharger (couvrent les 22 classes) ──────────────────────────
 DATASETS = [
-    # PPE complet: helmet, vest, gloves, boots, glasses, mask
-    ("roboflow-universe-datasets", "ppe-detection-nf06a",                4),
-    # Construction: helmet, no-helmet, vest, no-vest, person
+    # ✅ Fonctionne — Construction safety
     ("roboflow-100",               "construction-safety-gsnvb",           2),
-    # Safety equipment: harness, boots, gloves, glasses
-    ("roboflow-universe-datasets", "safety-equipment-detection-6cnhb",    1),
-    # Workers: worker, visitor, supervisor, intruder
-    ("roboflow-universe-datasets", "workers-ppe-detection",               1),
-    # Hard hat workers
-    ("roboflow-universe-datasets", "hard-hat-workers-cghgq",              2),
-    # Construction site safety
-    ("roboflow-universe-datasets", "construction-site-safety-iabkl",      1),
-    # Industrial PPE
-    ("roboflow-universe-datasets", "industrial-safety",                   1),
-    # Uniforme / no-uniforme
+    # ✅ Fonctionne — Uniform detection
     ("roboflow-universe-datasets", "uniform-detection",                   1),
+    # Essais workspace alternatifs
+    ("ppe-detection",              "ppe-detection-nf06a",                 4),
+    ("roboflow-universe",          "ppe-detection-nf06a",                 4),
+    ("public",                     "ppe-detection-nf06a",                 4),
+    ("safety-detection",           "safety-equipment-detection",          1),
+    ("roboflow-universe",          "hard-hat-workers",                    2),
+    ("construction-safety",        "construction-site-safety",            1),
 ]
 
 os.makedirs("ds", exist_ok=True)
@@ -73,6 +68,9 @@ for ws, proj, ver in DATASETS:
         print(f"   ❌ {proj}: {str(e)[:60]}")
 
 print(f"\n📊 {len(downloaded)}/{len(DATASETS)} datasets téléchargés")
+if len(downloaded) == 0:
+    raise Exception("Aucun dataset téléchargé — vérifier la clé Roboflow")
+print("⚠️ Entraînement avec les datasets disponibles uniquement")
 
 # ── Normaliser les noms de classes ─────────────────────────────────────────────
 CLASS_NORMALIZE = {
@@ -206,12 +204,17 @@ print(f"\n✅ {len(FINAL_CLASSES)} classes finales: {FINAL_CLASSES}")
 print("\n🏋️ Entraînement YOLOv11s (80 epochs GPU T4)...")
 model = YOLO("yolo11s.pt")  # Small = meilleur que nano pour 22 classes
 
+import torch
+device = 0 if torch.cuda.is_available() else "cpu"
+batch  = 32 if torch.cuda.is_available() else 8
+print(f"🖥️ Device: {'GPU T4 ✅' if device == 0 else 'CPU (lent)'}")
+
 results = model.train(
     data    = f"{MERGED}/data.yaml",
     epochs  = 80,
     imgsz   = 640,
-    batch   = 32,
-    device  = 0,
+    batch   = batch,
+    device  = device,
     name    = "ppe_final",
     # Augmentation complète
     flipud  = 0.5, fliplr  = 0.5,
