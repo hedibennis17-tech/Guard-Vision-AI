@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRailwayDetection } from "@/lib/hooks/useRailwayDetection";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -286,24 +285,14 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
     }
   }, [classMap, recording, startClip]);
 
-  // Railway YOLOv11 — détection serveur (plus précise)
-  const { detections: railwayDets, online: railwayOnline } = useRailwayDetection(videoRef, {
-    enabled:  aiOn && streaming,
-    moduleId: config.id,
-    fps:      2,
-    onDetection: handleDetection as any,
-  });
-
-  // COCO-SSD navigateur — fallback si Railway hors ligne
+  // COCO-SSD navigateur
   const { detections, isLoading, modelReady, fps } = useYoloDetection(videoRef, {
     mode: aiOn && streaming ? "browser" : "off",
     fps: 8, confidence:0.42, voteFrames:2,
     onDetection: handleDetection as any,
   });
 
-  // Priorité Railway, fallback COCO-SSD
-  const activeDets   = (railwayOnline && railwayDets.length ? railwayDets : detections) as any[];
-  const visibleDets  = activeDets.filter((d:any) => classMap[d.class]);
+  const visibleDets = detections.filter(d => classMap[d.class]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
