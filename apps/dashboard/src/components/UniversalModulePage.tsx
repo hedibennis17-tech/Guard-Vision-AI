@@ -157,7 +157,7 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
     try {
       streamRef.current?.getTracks().forEach(t => t.stop());
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode:face, width:{ideal:1280}, height:{ideal:720} },
+        video: { facingMode: face === "environment" ? { ideal: "environment" } : { ideal: "user" }, width:{ideal:1280}, height:{ideal:720} },
         audio: false,
       });
       streamRef.current = stream;
