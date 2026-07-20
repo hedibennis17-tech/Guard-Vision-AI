@@ -3,54 +3,40 @@ import { NextResponse } from "next/server";
 export async function GET() {
   const results: Record<string, any> = {};
 
-  // 1. Variables d'environnement Firebase
-  const envVars = {
-    NEXT_PUBLIC_FIREBASE_API_KEY:            !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:        !!process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    NEXT_PUBLIC_FIREBASE_PROJECT_ID:         !!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:     !!process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:!!process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    NEXT_PUBLIC_FIREBASE_APP_ID:             !!process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-    NEXT_PUBLIC_AI_SERVER_URL:               process.env.NEXT_PUBLIC_AI_SERVER_URL || "❌ MANQUANT",
+  // Variables Firebase
+  results.firebase_env = {
+    API_KEY:       !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+    AUTH_DOMAIN:   !!process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    PROJECT_ID:    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "❌ MANQUANT",
+    STORAGE:       !!process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    SENDER_ID:     !!process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+    APP_ID:        !!process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
   };
-  results.env_vars = envVars;
 
-  const missingVars = Object.entries(envVars)
-    .filter(([k,v]) => v === false)
+  const missing = Object.entries(results.firebase_env)
+    .filter(([,v]) => v === false)
     .map(([k]) => k);
-  results.missing_firebase_vars = missingVars;
 
-  // 2. Test connexion Firebase Admin (server-side)
-  try {
-    const admin = await import("firebase-admin");
-    if (!admin.apps.length) {
-      results.firebase_admin = "❌ Non initialisé côté serveur";
-    } else {
-      const db = admin.firestore();
-      await db.collection("_health").doc("ping").set({ ts: Date.now() });
-      results.firebase_admin = "✅ Connexion Firestore OK";
-    }
-  } catch(e:any) {
-    results.firebase_admin = `❌ ${e.message}`;
-  }
+  results.missing = missing;
+  results.firebase_ok = missing.length === 0;
 
-  // 3. Test Railway
+  // Railway
   const serverUrl = process.env.NEXT_PUBLIC_AI_SERVER_URL;
+  results.railway_url = serverUrl || "❌ MANQUANT";
   if (serverUrl) {
     try {
-      const r = await fetch(`${serverUrl}/health`, { signal: AbortSignal.timeout(5000) });
-      results.railway = r.ok ? "✅ En ligne" : `❌ HTTP ${r.status}`;
+      const r = await fetch(`${serverUrl}/health`, { signal: AbortSignal.timeout(5000), cache: "no-store" });
+      const d = await r.json();
+      results.railway = `✅ En ligne — v${d.version}`;
     } catch(e:any) {
       results.railway = `❌ ${e.message}`;
     }
   } else {
-    results.railway = "❌ NEXT_PUBLIC_AI_SERVER_URL manquant";
+    results.railway = "❌ URL manquante dans Vercel env vars";
   }
 
-  // 4. Diagnostic global
-  const allGood = missingVars.length === 0 && !results.railway.startsWith("❌");
-  results.status = allGood ? "✅ Tout OK" : "❌ Problèmes détectés";
+  results.status = missing.length === 0 ? "✅ Config OK" : `❌ ${missing.length} variables manquantes`;
   results.timestamp = new Date().toISOString();
 
-  return NextResponse.json(results, { status: 200 });
+  return NextResponse.json(results);
 }
