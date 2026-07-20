@@ -34,7 +34,10 @@ export function PPEModulePage({ config }: { config: ModulePageConfig }) {
     try {
       streamRef.current?.getTracks().forEach(t => t.stop());
       const stream = await navigator.mediaDevices.getUserMedia({
-        video:{ facingMode: face === "environment" ? { ideal: "environment" } : { ideal: "user" }, width:{ideal:1280}, height:{ideal:720} }, audio:false
+        video: face === "environment"
+          ? { facingMode: { exact: "environment" }, width:{ideal:1280}, height:{ideal:720} }
+          : { facingMode: "user", width:{ideal:1280}, height:{ideal:720} },
+        audio: false
       });
       streamRef.current = stream;
       if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
