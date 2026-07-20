@@ -28,6 +28,7 @@ export default function CameraDetailPage() {
   const [detMode,   setDetMode]   = useState<DetectionMode>("off");
   const [streaming, setStreaming] = useState(false);
   const [saved,     setSaved]     = useState(0);
+  const [facing,    setFacing]    = useState<"user" | "environment">("environment");
 
   // Charger l'org stable
   useEffect(()=>{
@@ -70,19 +71,37 @@ export default function CameraDetailPage() {
     if (camera?.connector === "phone_webcam") startWebcam();
   }, [camera?.connector]);
 
-  async function startWebcam() {
+  async function startWebcam(mode?: "user" | "environment") {
+    const targetFacing = mode || facing;
+    
+    // Arrêter le flux existant avant de redémarrer
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width:{ideal:1280}, height:{ideal:720} }, audio:false,
+        video: { 
+          facingMode: targetFacing,
+          width: { ideal: 1280 }, 
+          height: { ideal: 720 } 
+        }, 
+        audio: false,
       });
+      
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
+      setFacing(targetFacing);
       setStreaming(true);
     } catch (e: any) {
-      console.warn("Webcam:", e.message);
+      console.warn("Webcam Error:", e.message);
+      // Fallback si environment n'est pas dispo (ex: desktop)
+      if (targetFacing === "environment") {
+        startWebcam("user");
+      }
     }
   }
 
@@ -152,23 +171,32 @@ export default function CameraDetailPage() {
             {camera.status === "online" && <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />}
             {STATUS_LABELS[camera.status]}
           </span>
-          {isPhone && !streaming && (
-            <button onClick={startWebcam}
-              className="rounded-lg bg-brand px-4 py-2 text-sm font-medium">
-              ▶ Démarrer
-            </button>
-          )}
-          {isPhone && streaming && (
-            <button onClick={stopStream}
-              className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300">
-              ⏹ Arrêter
-            </button>
+          {isPhone && (
+            <div className="flex gap-2">
+              {!streaming ? (
+                <button onClick={() => startWebcam()}
+                  className="rounded-lg bg-brand px-4 py-2 text-sm font-medium">
+                  ▶ Démarrer
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => startWebcam(facing === "user" ? "environment" : "user")}
+                    className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800">
+                    {facing === "user" ? "🔄 Vue arrière" : "🔄 Vue avant"}
+                  </button>
+                  <button onClick={stopStream}
+                    className="rounded-lg border border-red-900/30 bg-red-900/10 px-4 py-2 text-sm text-red-400 hover:bg-red-900/20">
+                    ⏹ Arrêter
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Flux vidéo — CameraControls avec toggle avant/arrière + enregistrement */}
+        {/* Flux vidéo */}
         <div className="lg:col-span-2 space-y-4">
           {isPhone && (stableOrgId || currentOrg?.id) && (
             <CameraControls
@@ -179,15 +207,42 @@ export default function CameraDetailPage() {
               compact={false}
             />
           )}
-          {!isPhone && (
+          
           <div className="relative aspect-video rounded-xl border border-slate-800 bg-black overflow-hidden">
-            <div className="flex h-full items-center justify-center text-slate-600 text-sm">
-              {camera.streamUrl
-                ? `Flux: ${camera.streamUrl.slice(0,50)}...`
-                : "Connecter le flux RTSP via le Camera Connector Engine"}
-            </div>
+            {isPhone ? (
+              <>
+                <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                <DetectionOverlay detections={detections} videoRef={videoRef} />
+                {streaming && (
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+                    <span className="text-xs text-white">LIVE</span>
+                  </div>
+                )}
+                {detMode !== "off" && (
+                  <div className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-2 py-1 text-xs">
+                    {isLoading ? <span className="text-brand">Chargement IA...</span>
+                     : modelReady ? <span className="text-emerald-400">🤖 {fps}fps · {detections.length} obj · {saved} sauvegardés</span>
+                     : <span className="text-slate-500">IA en attente</span>}
+                  </div>
+                )}
+                {!streaming && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                    <span className="text-4xl">📱</span>
+                    <button onClick={() => startWebcam()} className="rounded-xl bg-brand px-6 py-2.5 text-sm font-medium">
+                      ▶ Démarrer la caméra
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex h-full items-center justify-center text-slate-600 text-sm">
+                {camera.streamUrl
+                  ? `Flux: ${camera.streamUrl.slice(0,50)}...`
+                  : "Connecter le flux RTSP via le Camera Connector Engine"}
+              </div>
+            )}
           </div>
-          )}
 
           {/* Contrôles IA */}
           {isPhone && streaming && (
