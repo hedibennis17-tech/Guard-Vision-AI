@@ -5,8 +5,6 @@ import { usePPEDetection, type PPEWorker, type PPEResult } from "@/lib/hooks/use
 import { PPEOverlay } from "@/components/PPEOverlay";
 import { ModuleLocationPicker } from "@/components/ModuleLocationPicker";
 import { checkSetup, quickSetup, createCameraDirectly } from "@/lib/services/setupService";
-import { runDetectionPipeline } from "@/lib/services/pipelineService";
-import { useMediaRecorder } from "@/lib/hooks/useMediaRecorder";
 import type { ModulePageConfig } from "@/components/UniversalModulePage";
 
 type Tab = "camera"|"workers"|"events"|"analytics";
@@ -57,44 +55,12 @@ export function PPEModulePage({ config }: { config: ModulePageConfig }) {
     setStreaming(false); setAiOn(false); setLog("Caméra arrêtée");
   }
 
-  const { startClip, recording } = useMediaRecorder(videoRef);
-
-  const handleResult = useCallback(async (result: PPEResult) => {
+  const handleResult = useCallback((result: PPEResult) => {
     if (!result.workers?.length && !result.detections?.length) return;
     setHistory(prev => [result, ...prev].slice(0, 50));
     const sc = result.site_compliance;
     if (sc) setLog(`${sc.status} — Score: ${sc.score}% (${sc.compliant}/${sc.total_workers} conformes)`);
-
-    // Pipeline events + notifications pour chaque violation
-    const org = orgRef.current;
-    const cam = camRef.current;
-    if (!org || !cam || !videoRef.current) return;
-
-    for (const worker of result.workers ?? []) {
-      if (worker.compliant) continue;
-      for (const absent of worker.epi_absent ?? []) {
-        try {
-          const pipeResult = await runDetectionPipeline({
-            organizationId: org,
-            cameraId:       cam,
-            detection: {
-              class:    (absent as any).class ?? "no_ppe",
-              label:    absent.label,
-              severity: "critical",
-              category: "ppe",
-              score:    0.9,
-              bbox:     (absent.bbox ?? [0,0,0,0]) as [number,number,number,number],
-            },
-            videoElement: videoRef.current,
-          });
-          // Enregistrer un clip si violation critique
-          if (pipeResult?.eventId && pipeResult.eventId !== "error" && !recording) {
-            startClip({ organizationId:org, cameraId:cam, eventId:pipeResult.eventId, durationSec:10 });
-          }
-        } catch {}
-      }
-    }
-  }, [orgRef, camRef, videoRef, recording, startClip]);
+  }, []);
 
   const { result, loading, error } = usePPEDetection(videoRef, {
     enabled: aiOn && streaming,
