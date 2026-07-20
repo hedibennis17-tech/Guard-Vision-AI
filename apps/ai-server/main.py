@@ -82,6 +82,27 @@ def get_db():
 async def startup():
     logger.info("🚀 Vision Guard AI Server v2.0 démarrage...")
     get_db()
+    # Télécharger ppe_final.onnx depuis Google Drive si absent
+    GDRIVE_FILE_ID = "1QMrXVYET8vqLG8elnkU6x8TQCM16zbTn"
+    onnx_dest = "models/ppe.onnx"
+    if not os.path.exists(onnx_dest):
+        try:
+            import urllib.request, subprocess, sys
+            os.makedirs("models", exist_ok=True)
+            logger.info("📥 Téléchargement ppe_final.onnx depuis Google Drive...")
+            # Installer gdown pour les gros fichiers Google Drive
+            subprocess.run([sys.executable,"-m","pip","install","gdown","-q"], capture_output=True)
+            import gdown
+            url = f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}"
+            gdown.download(url, onnx_dest, quiet=False, fuzzy=True)
+            if os.path.exists(onnx_dest):
+                size = os.path.getsize(onnx_dest)/1024/1024
+                logger.success(f"✅ models/ppe.onnx téléchargé ({size:.1f}MB)")
+            else:
+                logger.error("❌ Téléchargement échoué")
+        except Exception as e:
+            logger.error(f"❌ Google Drive download: {e}")
+
     # Copier ppe.onnx et ppe.pt depuis le repo vers models/
     import shutil
     os.makedirs("models", exist_ok=True)
