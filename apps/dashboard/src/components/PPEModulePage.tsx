@@ -163,23 +163,46 @@ export function PPEModulePage({ config }: { config: ModulePageConfig }) {
             )}
           </div>
 
-          {/* Boutons */}
+          {/* Boutons de contrôle */}
           <div className="grid grid-cols-2 gap-2">
-            {!streaming
-              ? <button onClick={()=>startCam()} className="col-span-2 rounded-xl py-3 text-sm font-bold text-white" style={{background:config.color}}>▶ Démarrer la caméra</button>
-              : <button onClick={stopCam} className="rounded-xl border border-red-700 bg-red-900/20 py-3 text-sm font-bold text-red-400">⏹ Arrêter</button>
-            }
-            <button onClick={()=>{ const n=facing==="environment"?"user":"environment"; setFacing(n); if(streaming)startCam(n); }}
-              className="rounded-xl border border-slate-700 bg-slate-800 py-3 text-sm font-bold text-white">
-              {facing==="environment"?"🤳 Vue avant":"📷 Vue arrière"}
+            {/* Démarrer / Arrêter */}
+            {!streaming ? (
+              <button onClick={() => startCam()}
+                className="col-span-2 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white"
+                style={{background:config.color}}>
+                ▶ Démarrer la caméra
+              </button>
+            ) : (
+              <button onClick={stopCam}
+                className="flex items-center justify-center gap-2 rounded-xl border border-red-700 bg-red-900/20 py-3 text-sm font-bold text-red-400">
+                ⏹ Arrêter
+              </button>
+            )}
+
+            {/* Vue avant / arrière */}
+            <button onClick={() => {
+                const next = facing === "environment" ? "user" : "environment";
+                setFacing(next);
+                if (streaming) startCam(next);
+              }}
+              className="flex items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-bold text-white hover:border-slate-400 transition-colors">
+              {facing === "environment" ? "🤳 Vue avant" : "📷 Vue arrière"}
             </button>
-            <button onClick={()=>setAiOn(!aiOn)} disabled={!streaming}
-              className={`rounded-xl py-3 text-sm font-bold transition-colors disabled:opacity-40 ${aiOn?"text-white":"border border-slate-700 bg-slate-800 text-slate-300"}`}
-              style={aiOn?{background:config.color}:{}}>
-              🤖 PPE IA {aiOn?"ON":"OFF"}
+
+            {/* IA PPE ON/OFF */}
+            <button onClick={() => setAiOn(!aiOn)}
+              disabled={!streaming}
+              className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold transition-colors disabled:opacity-40 ${
+                aiOn ? "text-white" : "border-slate-600 bg-slate-800 text-slate-300"
+              }`}
+              style={aiOn ? {background:config.color, borderColor:config.color} : {}}>
+              🤖 PPE IA {aiOn ? "ON" : "OFF"}
             </button>
-            <button onClick={()=>setShowPicker(true)} className="col-span-2 rounded-xl border border-slate-800 bg-slate-900 py-2 text-xs text-slate-400 hover:text-white">
-              📍 {location?`Emplacement: ${location}`:"Choisir l'emplacement"}
+
+            {/* Emplacement */}
+            <button onClick={() => setShowPicker(true)}
+              className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-400 hover:text-white hover:border-slate-500 transition-colors">
+              📍 {location ? `Emplacement: ${location}` : "Choisir l'emplacement de la caméra"}
             </button>
           </div>
 
