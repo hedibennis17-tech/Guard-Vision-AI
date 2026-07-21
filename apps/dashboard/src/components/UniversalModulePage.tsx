@@ -278,6 +278,14 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
   // ── COCO-SSD fallback ──────────────────────────────────────────────────────
   const classMap = useRef(Object.fromEntries(config.detections.map(c=>[c.cocoClass,c]))).current;
 
+  // Throttle — max 1 event par classe par 60 secondes
+  const lastEvTime = useRef<Record<string,number>>({});
+  function canSend(cls: string): boolean {
+    const now = Date.now();
+    if ((now-(lastEvTime.current[cls]??0)) < 60000) return false;
+    lastEvTime.current[cls] = now; return true;
+  }
+
   const handleDetection = useCallback(async (dets: Detection[]) => {
     if (railwayOk) return; // Railway actif = on utilise Railway
     const modDets = dets.filter(d=>classMap[d.class]);
@@ -291,6 +299,7 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
     for (const det of modDets.slice(0,2)) {
       const mc=classMap[det.class];
       if (!mc?.sendToEvents) continue;
+      if (!canSend(det.class)) continue; // throttle 60s
       try {
         const result = await runDetectionPipeline({ organizationId:org, cameraId:cam, detection:{...det,label:mc.label,severity:mc.severity,category:mc.category}, videoElement:videoRef.current });
         if (result?.eventId&&result.eventId!=="error"&&!recording&&(mc.severity==="critical"||mc.severity==="warning")) {

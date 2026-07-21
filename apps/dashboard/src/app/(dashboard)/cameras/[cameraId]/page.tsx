@@ -114,7 +114,13 @@ export default function CameraDetailPage() {
     return c.toDataURL("image/jpeg", 0.7).split(",")[1];
   }, []);
 
-  const isPPE = ["construction","industrial","defense"].some(s => cameraId.includes(s) || camera?.name?.toLowerCase().includes(s));
+  const isPPE = camera ? (
+    ["construction","industrial","defense"].some(s =>
+      cameraId.toLowerCase().includes(s) ||
+      (camera.name??'').toLowerCase().includes(s) ||
+      (camera.location??'').toLowerCase().includes(s)
+    )
+  ) : false;
 
   useEffect(() => {
     if (ppeInterval.current) clearInterval(ppeInterval.current);
@@ -177,14 +183,24 @@ export default function CameraDetailPage() {
     }
   }, [ppeDets, ppeWorkers]);
 
-  // COCO-SSD + enregistrement
+  // Throttle — max 1 event par classe par 60 secondes
+  const lastEventTime = useRef<Record<string,number>>({});
+  function canSendEvent(cls: string): boolean {
+    const now = Date.now();
+    if ((now - (lastEventTime.current[cls] ?? 0)) < 60000) return false;
+    lastEventTime.current[cls] = now;
+    return true;
+  }
+
+  // COCO-SSD — désactivé si PPE actif
   const { startClip, recording, uploading, lastLog: clipLog } = useMediaRecorder(videoRef);
   const { detections, isLoading, modelReady, fps } = useYoloDetection(videoRef, {
     mode: aiOn && streaming && !isPPE ? "browser" : "off",
-    fps:8, confidence:0.50, voteFrames:2,
+    fps:3, confidence:0.60, voteFrames:3,
     onDetection: async dets => {
       if (!currentOrg?.id || !videoRef.current) return;
-      for (const det of dets.slice(0,2)) {
+      for (const det of dets.slice(0,1)) {
+        if (!canSendEvent(det.class)) continue; // throttle
         const result = await runDetectionPipeline({ organizationId:currentOrg.id, cameraId, detection:det, videoElement:videoRef.current }).catch(()=>null);
         if (result?.eventId && !recording)
           startClip({ organizationId:currentOrg.id, cameraId, eventId:result.eventId, durationSec:12 });
