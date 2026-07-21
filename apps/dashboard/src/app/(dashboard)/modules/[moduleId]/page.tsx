@@ -1,11 +1,7 @@
 "use client";
 import { ALL_MODULE_CONFIGS } from "@/lib/orchestrator/allModuleConfigs";
 import { UniversalModulePage } from "@/components/UniversalModulePage";
-import { PPEModulePage } from "@/components/PPEModulePage";
 import Link from "next/link";
-
-// Modules avec détection PPE via Railway
-const PPE_MODULES = new Set(["construction", "industrial", "defense"]);
 
 export default function ModulePage({ params }: { params: { moduleId: string } }) {
   const config = ALL_MODULE_CONFIGS[params.moduleId];
@@ -20,11 +16,5 @@ export default function ModulePage({ params }: { params: { moduleId: string } })
       </div>
     );
   }
-
-  // Modules PPE → page spécialisée avec boxes colorées
-  if (PPE_MODULES.has(params.moduleId)) {
-    return <PPEModulePage config={config} />;
-  }
-
   return <UniversalModulePage config={config} />;
 }
