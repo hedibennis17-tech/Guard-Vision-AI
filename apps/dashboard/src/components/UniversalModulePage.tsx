@@ -319,58 +319,77 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
   // ── PPE Overlay canvas ────────────────────────────────────────────────────
   const ppeCanvasRef = useRef<HTMLCanvasElement>(null);
 
+  // PPE Canvas — dessin continu requestAnimationFrame
+  const animRef = useRef<number>(0);
+  const lastWorkersRef = useRef<any[]>([]);
+  const lastDetsRef    = useRef<any[]>([]);
+
+  useEffect(() => { lastWorkersRef.current = ppeWorkers; }, [ppeWorkers]);
+  useEffect(() => { lastDetsRef.current    = ppeDets; },    [ppeDets]);
+
   useEffect(() => {
     const canvas = ppeCanvasRef.current;
     const video  = videoRef.current;
-    if (!canvas || !video || !ppeDets.length) {
-      ppeCanvasRef.current?.getContext("2d")?.clearRect(0,0,9999,9999);
-      return;
-    }
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    canvas.width  = video.clientWidth;
-    canvas.height = video.clientHeight;
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    const scaleX = canvas.width/(video.videoWidth||canvas.width);
-    const scaleY = canvas.height/(video.videoHeight||canvas.height);
+    if (!canvas || !video) return;
 
-    // Dessiner workers
-    for (const w of ppeWorkers) {
-      if (!w.bbox) continue;
-      const [x1,y1,x2,y2]=w.bbox;
-      const color = w.compliant?"#10B981":"#EF4444";
-      ctx.strokeStyle=color; ctx.lineWidth=3;
-      ctx.strokeRect(x1*scaleX,y1*scaleY,(x2-x1)*scaleX,(y2-y1)*scaleY);
-      ctx.fillStyle=color;
-      ctx.fillRect(x1*scaleX,y1*scaleY-22,(x2-x1)*scaleX,22);
-      ctx.fillStyle="#FFF"; ctx.font="bold 12px sans-serif";
-      ctx.fillText(`#${w.worker_id} ${w.score}% ${w.compliant?"✅":"❌"}`,x1*scaleX+4,y1*scaleY-6);
-      // EPI présents (vert)
-      for (const e of w.epi_present??[]) {
-        if (!e.bbox) continue;
-        const [ex1,ey1,ex2,ey2]=e.bbox;
-        ctx.strokeStyle="#10B981"; ctx.lineWidth=2;
-        ctx.strokeRect(ex1*scaleX,ey1*scaleY,(ex2-ex1)*scaleX,(ey2-ey1)*scaleY);
-        ctx.fillStyle="#10B981";
-        ctx.fillRect(ex1*scaleX,ey1*scaleY-16,(ex2-ex1)*scaleX,16);
-        ctx.fillStyle="#FFF"; ctx.font="10px sans-serif";
-        ctx.fillText(`✅ ${e.label}`,ex1*scaleX+2,ey1*scaleY-4);
+    function draw() {
+      const ctx = canvas!.getContext("2d");
+      if (!ctx || !video) { animRef.current = requestAnimationFrame(draw); return; }
+      canvas!.width  = video.clientWidth  || canvas!.width;
+      canvas!.height = video.clientHeight || canvas!.height;
+      ctx.clearRect(0, 0, canvas!.width, canvas!.height);
+      const sx = canvas!.width  / (video.videoWidth  || canvas!.width);
+      const sy = canvas!.height / (video.videoHeight || canvas!.height);
+      const workers = lastWorkersRef.current;
+      const dets    = lastDetsRef.current;
+
+      for (const w of workers) {
+        if (!w.bbox?.length) continue;
+        const [x1,y1,x2,y2] = w.bbox;
+        const color = w.compliant ? "#10B981" : "#EF4444";
+        ctx.strokeStyle = color; ctx.lineWidth = 3;
+        ctx.strokeRect(x1*sx, y1*sy, (x2-x1)*sx, (y2-y1)*sy);
+        ctx.fillStyle = color + "CC";
+        ctx.fillRect(x1*sx, y1*sy - 24, (x2-x1)*sx, 24);
+        ctx.fillStyle = "#FFF"; ctx.font = "bold 13px sans-serif";
+        ctx.fillText(`👷 #${w.worker_id}  ${w.score}%  ${w.compliant?"✅":"❌"}`, x1*sx + 4, y1*sy - 6);
+        for (const e of w.epi_present ?? []) {
+          if (!e.bbox?.length) continue;
+          const [a,b,c,d] = e.bbox;
+          ctx.strokeStyle = "#10B981"; ctx.lineWidth = 2;
+          ctx.strokeRect(a*sx, b*sy, (c-a)*sx, (d-b)*sy);
+          ctx.fillStyle = "#10B981CC"; ctx.fillRect(a*sx, b*sy - 18, (c-a)*sx, 18);
+          ctx.fillStyle = "#FFF"; ctx.font = "bold 11px sans-serif";
+          ctx.fillText(`✅ ${e.label}`, a*sx + 3, b*sy - 4);
+        }
+        for (const ab of w.epi_absent ?? []) {
+          if (!ab.bbox?.length) continue;
+          const [a,b,c,d] = ab.bbox;
+          ctx.strokeStyle = "#EF4444"; ctx.lineWidth = 3;
+          ctx.setLineDash([6,3]); ctx.strokeRect(a*sx, b*sy, (c-a)*sx, (d-b)*sy); ctx.setLineDash([]);
+          ctx.fillStyle = "#EF4444CC"; ctx.fillRect(a*sx, b*sy - 18, (c-a)*sx, 18);
+          ctx.fillStyle = "#FFF"; ctx.font = "bold 11px sans-serif";
+          ctx.fillText(`🚨 ${ab.label}`, a*sx + 3, b*sy - 4);
+        }
       }
-      // EPI absents (rouge)
-      for (const a of w.epi_absent??[]) {
-        if (!a.bbox) continue;
-        const [ax1,ay1,ax2,ay2]=a.bbox;
-        ctx.strokeStyle="#EF4444"; ctx.lineWidth=3;
-        ctx.setLineDash([5,3]);
-        ctx.strokeRect(ax1*scaleX,ay1*scaleY,(ax2-ax1)*scaleX,(ay2-ay1)*scaleY);
-        ctx.setLineDash([]);
-        ctx.fillStyle="#EF4444";
-        ctx.fillRect(ax1*scaleX,ay1*scaleY-16,(ax2-ax1)*scaleX,16);
-        ctx.fillStyle="#FFF"; ctx.font="bold 10px sans-serif";
-        ctx.fillText(`🚨 ${a.label}`,ax1*scaleX+2,ay1*scaleY-4);
+      if (!workers.length) {
+        for (const det of dets) {
+          if (!det.bbox?.length) continue;
+          const [x1,y1,x2,y2] = det.bbox;
+          const color = det.color || (det.alert ? "#EF4444" : "#10B981");
+          ctx.strokeStyle = color; ctx.lineWidth = 2;
+          ctx.strokeRect(x1*sx, y1*sy, (x2-x1)*sx, (y2-y1)*sy);
+          ctx.fillStyle = color + "CC"; ctx.fillRect(x1*sx, y1*sy - 18, (x2-x1)*sx, 18);
+          ctx.fillStyle = "#FFF"; ctx.font = "11px sans-serif";
+          ctx.fillText(`${det.icon||""} ${det.label}`, x1*sx + 3, y1*sy - 4);
+        }
       }
+      animRef.current = requestAnimationFrame(draw);
     }
-  }, [ppeDets, ppeWorkers]);
+    animRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [videoRef]);
+
 
   // ── Render ────────────────────────────────────────────────────────────────
   const unreadEvents = events.filter(e=>!e.acknowledged).length;
