@@ -64,8 +64,30 @@ class PPEDetector:
         for mode, path in MODEL_PRIORITY:
             if not os.path.exists(path):
                 continue
+
+            # Vérification intégrité fichier
+            size = os.path.getsize(path)
+            if size < 1_000_000:
+                logger.warning(f"⚠️ {path} trop petit ({size} bytes) — ignoré")
+                continue
+
             try:
-                if mode == "onnx":
+                if mode == "pt":
+                    from ultralytics import YOLO
+                    self._pt_model   = YOLO(path)
+                    self.class_names = list(self._pt_model.names.values())
+                    nc = len(self.class_names)
+                    # Vérifier si le modèle a assez de classes
+                    missing = set(FINAL_CLASSES) - set(self.class_names)
+                    if len(missing) > 8:
+                        logger.warning(f"⚠️ {path}: {nc} classes seulement, manque {len(missing)} — essai suivant")
+                        self._pt_model = None
+                        continue
+                    self.loaded = True; self.mode = "pytorch"; self.model_path = path
+                    logger.success(f"✅ PPE PT: {path} | {nc} classes | manque: {missing or 'rien'}")
+                    return
+
+                else:  # onnx
                     import onnxruntime as ort
                     opts = ort.SessionOptions()
                     opts.inter_op_num_threads = 2
@@ -74,26 +96,56 @@ class PPEDetector:
                         path, sess_options=opts,
                         providers=["CPUExecutionProvider"]
                     )
-                    # Lire les noms de classes depuis les métadonnées
+                    # Lire les classes depuis les métadonnées ONNX
                     meta = self.session.get_modelmeta().custom_metadata_map
                     if "names" in meta:
                         import ast
                         names = ast.literal_eval(meta["names"])
-                        self.class_names = [names[i] for i in sorted(names.keys())] if isinstance(names,dict) else names
+                        detected_classes = [names[i] for i in sorted(names.keys())] if isinstance(names,dict) else list(names)
+                        if detected_classes:
+                            self.class_names = detected_classes
+                    nc = len(self.class_names)
+                    missing = set(FINAL_CLASSES) - set(self.class_names)
+                    if len(missing) > 8:
+                        logger.warning(f"⚠️ {path}: {nc} classes ONNX, manque {len(missing)} — essai suivant")
+                        self.session = None
+                        continue
                     self.loaded = True; self.mode = "onnx"; self.model_path = path
-                    logger.success(f"✅ PPE ONNX: {path} | {len(self.class_names)} classes: {self.class_names}")
+                    logger.success(f"✅ PPE ONNX: {path} | {nc} classes | manque: {missing or 'rien'}")
                     return
-                else:
-                    from ultralytics import YOLO
-                    self._pt_model = YOLO(path)
-                    self.class_names = list(self._pt_model.names.values())
-                    self.loaded = True; self.mode = "pytorch"; self.model_path = path
-                    logger.success(f"✅ PPE PyTorch: {path} | {len(self.class_names)} classes: {self.class_names}")
-                    return
+
             except Exception as e:
                 logger.warning(f"⚠️ {path}: {e}")
+                self.session = None; self._pt_model = None
 
-        logger.error("❌ Aucun modèle PPE trouvé dans models/")
+        # Fallback: charger le meilleur modèle disponible même incomplet
+        logger.warning("⚠️ Aucun modèle 16 classes — chargement meilleur disponible")
+        for mode, path in MODEL_PRIORITY:
+            if not os.path.exists(path) or os.path.getsize(path) < 1_000_000:
+                continue
+            try:
+                if mode == "pt":
+                    from ultralytics import YOLO
+                    self._pt_model   = YOLO(path)
+                    self.class_names = list(self._pt_model.names.values())
+                    self.loaded = True; self.mode = "pytorch"; self.model_path = path
+                    logger.success(f"✅ PPE fallback PT: {path} | {len(self.class_names)} classes")
+                    return
+                else:
+                    import onnxruntime as ort
+                    self.session = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+                    meta = self.session.get_modelmeta().custom_metadata_map
+                    if "names" in meta:
+                        import ast
+                        n = ast.literal_eval(meta["names"])
+                        self.class_names = [n[i] for i in sorted(n.keys())] if isinstance(n,dict) else list(n)
+                    self.loaded = True; self.mode = "onnx"; self.model_path = path
+                    logger.success(f"✅ PPE fallback ONNX: {path} | {len(self.class_names)} classes")
+                    return
+            except Exception as e:
+                logger.warning(f"⚠️ fallback {path}: {e}")
+
+        logger.error("❌ Aucun modèle PPE utilisable")
 
     def detect(self, image: np.ndarray, confidence: float = 0.40) -> List[Dict]:
         if not self.loaded:
