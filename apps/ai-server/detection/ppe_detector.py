@@ -38,12 +38,14 @@ CLASS_INFO = {
 
 # Priorité de chargement des modèles
 MODEL_PRIORITY = [
+    # PyTorch en premier (plus de classes)
     ("pt",   "models/ppe_final.pt"),
     ("pt",   "models/ppe.pt"),
-    ("onnx", "models/ppe_final.onnx"),
-    ("onnx", "models/ppe.onnx"),
     ("pt",   "/app/ppe_final.pt"),
     ("pt",   "/app/ppe.pt"),
+    # ONNX en fallback
+    ("onnx", "models/ppe_final.onnx"),
+    ("onnx", "models/ppe.onnx"),
     ("onnx", "/app/ppe_final.onnx"),
     ("onnx", "/app/ppe.onnx"),
 ]
