@@ -1,164 +1,181 @@
 """
-PPE Detector — ONNX Runtime (sans torch/ultralytics)
-Utilise ppe.onnx exporté depuis YOLOv11
-Classes: helmet, no-helmet, no-vest, person, vest
+PPE Detector — Vision Guard AI
+16 classes: helmet/no_helmet/vest/no_vest/gloves/no_gloves/
+            boots/no_boots/glasses/no_glasses/harness/no_harness/
+            uniform/no_uniform/mask/person
+Charge dans l'ordre: ppe_final.pt → ppe.pt → ppe_final.onnx → ppe.onnx
 """
-import os, base64
-from typing import Optional, List, Dict
-import numpy as np
+import os, numpy as np
 from loguru import logger
+from typing import Optional, List, Dict
 
-PPE_CLASS_MAP = {
-    "helmet":    {"label":"Casque ✅",         "severity":"info",    "alert":False,"icon":"⛑️","category":"ppe"},
-    "no-helmet": {"label":"SANS CASQUE 🚨",     "severity":"critical","alert":True, "icon":"🚫","category":"ppe"},
-    "no_helmet": {"label":"SANS CASQUE 🚨",     "severity":"critical","alert":True, "icon":"🚫","category":"ppe"},
-    "vest":      {"label":"Gilet haute-vis ✅", "severity":"info",    "alert":False,"icon":"🦺","category":"ppe"},
-    "safety_vest":{"label":"Gilet haute-vis ✅","severity":"info",    "alert":False,"icon":"🦺","category":"ppe"},
-    "no-vest":   {"label":"SANS GILET 🚨",      "severity":"critical","alert":True, "icon":"🚫","category":"ppe"},
-    "no_vest":   {"label":"SANS GILET 🚨",      "severity":"critical","alert":True, "icon":"🚫","category":"ppe"},
-    "person":    {"label":"Travailleur 👷",     "severity":"warning", "alert":True, "icon":"👷","category":"human"},
+FINAL_CLASSES = [
+    "helmet","no_helmet","vest","no_vest","gloves","no_gloves",
+    "boots","no_boots","glasses","no_glasses","harness","no_harness",
+    "uniform","no_uniform","mask","person"
+]
+
+CLASS_INFO = {
+    "helmet":   {"label":"Casque ✅",          "severity":"info",    "alert":False, "icon":"⛑️",  "color":"#10B981"},
+    "no_helmet":{"label":"SANS CASQUE 🚨",     "severity":"critical","alert":True,  "icon":"🚫",  "color":"#EF4444"},
+    "no-helmet":{"label":"SANS CASQUE 🚨",     "severity":"critical","alert":True,  "icon":"🚫",  "color":"#EF4444"},
+    "vest":     {"label":"Gilet ✅",            "severity":"info",    "alert":False, "icon":"🦺",  "color":"#10B981"},
+    "no_vest":  {"label":"SANS GILET 🚨",      "severity":"critical","alert":True,  "icon":"🚫",  "color":"#EF4444"},
+    "no-vest":  {"label":"SANS GILET 🚨",      "severity":"critical","alert":True,  "icon":"🚫",  "color":"#EF4444"},
+    "gloves":   {"label":"Gants ✅",            "severity":"info",    "alert":False, "icon":"🧤",  "color":"#10B981"},
+    "no_gloves":{"label":"SANS GANTS 🚨",      "severity":"critical","alert":True,  "icon":"🚫",  "color":"#EF4444"},
+    "boots":    {"label":"Bottes sécu ✅",      "severity":"info",    "alert":False, "icon":"👢",  "color":"#10B981"},
+    "no_boots": {"label":"SANS BOTTES 🚨",     "severity":"warning", "alert":True,  "icon":"⚠️", "color":"#F59E0B"},
+    "glasses":  {"label":"Lunettes sécu ✅",    "severity":"info",    "alert":False, "icon":"🥽",  "color":"#10B981"},
+    "no_glasses":{"label":"SANS LUNETTES ⚠️", "severity":"warning", "alert":True,  "icon":"⚠️", "color":"#F59E0B"},
+    "harness":  {"label":"Harnais ✅",          "severity":"info",    "alert":False, "icon":"🪝",  "color":"#10B981"},
+    "no_harness":{"label":"SANS HARNAIS 🚨",   "severity":"critical","alert":True,  "icon":"🚫",  "color":"#EF4444"},
+    "uniform":  {"label":"Uniforme ✅",         "severity":"info",    "alert":False, "icon":"👷",  "color":"#10B981"},
+    "no_uniform":{"label":"SANS UNIFORME ⚠️", "severity":"warning", "alert":True,  "icon":"⚠️", "color":"#F59E0B"},
+    "mask":     {"label":"Masque ✅",           "severity":"info",    "alert":False, "icon":"😷",  "color":"#10B981"},
+    "person":   {"label":"Travailleur 👷",      "severity":"info",    "alert":False, "icon":"👷",  "color":"#3B82F6"},
 }
 
-ONNX_PATHS = ["models/ppe.onnx","ppe.onnx","/app/ppe.onnx","/app/models/ppe.onnx"]
-PT_PATHS   = ["models/ppe.pt","ppe.pt","/app/ppe.pt","/app/models/ppe.pt"]
+# Priorité de chargement des modèles
+MODEL_PRIORITY = [
+    ("pt",   "models/ppe_final.pt"),
+    ("pt",   "models/ppe.pt"),
+    ("onnx", "models/ppe_final.onnx"),
+    ("onnx", "models/ppe.onnx"),
+    ("pt",   "/app/ppe_final.pt"),
+    ("pt",   "/app/ppe.pt"),
+    ("onnx", "/app/ppe_final.onnx"),
+    ("onnx", "/app/ppe.onnx"),
+]
 
 class PPEDetector:
     def __init__(self):
-        self.session    = None
-        self.loaded     = False
-        self.mode       = "not_loaded"
-        self.class_names= list(PPE_CLASS_MAP.keys())
+        self.session     = None
+        self._pt_model   = None
+        self.loaded      = False
+        self.mode        = "not_loaded"
+        self.model_path  = None
+        self.class_names = FINAL_CLASSES
         self._load()
 
     def _load(self):
-        # Essai 1: ONNX Runtime (léger, pas de torch)
-        for path in ONNX_PATHS:
-            if os.path.exists(path):
-                try:
+        for mode, path in MODEL_PRIORITY:
+            if not os.path.exists(path):
+                continue
+            try:
+                if mode == "onnx":
                     import onnxruntime as ort
                     opts = ort.SessionOptions()
                     opts.inter_op_num_threads = 2
                     opts.intra_op_num_threads = 2
-                    self.session = ort.InferenceSession(path, sess_options=opts,
-                                   providers=["CPUExecutionProvider"])
-                    # Lire les noms de classes depuis les métadonnées si disponibles
+                    self.session = ort.InferenceSession(
+                        path, sess_options=opts,
+                        providers=["CPUExecutionProvider"]
+                    )
+                    # Lire les noms de classes depuis les métadonnées
                     meta = self.session.get_modelmeta().custom_metadata_map
                     if "names" in meta:
                         import ast
                         names = ast.literal_eval(meta["names"])
-                        if isinstance(names, dict):
-                            self.class_names = [names[i] for i in sorted(names.keys())]
-                        elif isinstance(names, list):
-                            self.class_names = names
-                    self.loaded = True
-                    self.mode   = "onnx"
-                    logger.success(f"✅ PPE ONNX chargé: {path} | Classes: {self.class_names}")
+                        self.class_names = [names[i] for i in sorted(names.keys())] if isinstance(names,dict) else names
+                    self.loaded = True; self.mode = "onnx"; self.model_path = path
+                    logger.success(f"✅ PPE ONNX: {path} | {len(self.class_names)} classes: {self.class_names}")
                     return
-                except Exception as e:
-                    logger.warning(f"⚠️ ONNX {path}: {e}")
-
-        # Essai 2: ultralytics (si disponible)
-        for path in PT_PATHS:
-            if os.path.exists(path):
-                try:
+                else:
                     from ultralytics import YOLO
                     self._pt_model = YOLO(path)
-                    self.loaded    = True
-                    self.mode      = "pytorch"
-                    logger.success(f"✅ PPE PyTorch chargé: {path}")
+                    self.class_names = list(self._pt_model.names.values())
+                    self.loaded = True; self.mode = "pytorch"; self.model_path = path
+                    logger.success(f"✅ PPE PyTorch: {path} | {len(self.class_names)} classes: {self.class_names}")
                     return
-                except Exception as e:
-                    logger.warning(f"⚠️ PyTorch {path}: {e}")
+            except Exception as e:
+                logger.warning(f"⚠️ {path}: {e}")
 
-        logger.warning("⚠️ PPE: aucun modèle ONNX trouvé. Uploader ppe.onnx sur GitHub → apps/ai-server/")
+        logger.error("❌ Aucun modèle PPE trouvé dans models/")
 
-    def detect(self, image: np.ndarray, sector:str="general", confidence:float=0.40) -> List[Dict]:
-        if not self.loaded: return []
-        if self.mode == "onnx":   return self._detect_onnx(image, confidence)
-        if self.mode == "pytorch": return self._detect_pt(image, confidence)
-        return []
-
-    def _detect_onnx(self, img: np.ndarray, conf_thresh:float) -> List[Dict]:
+    def detect(self, image: np.ndarray, confidence: float = 0.40) -> List[Dict]:
+        if not self.loaded:
+            return []
         try:
-            from PIL import Image
-            h, w = img.shape[:2]
-            SIZE  = 640
-            scale = min(SIZE/w, SIZE/h)
-            nw, nh = int(w*scale), int(h*scale)
-            pil   = Image.fromarray(img).resize((nw,nh), Image.BILINEAR)
-            pad   = Image.new("RGB",(SIZE,SIZE),(114,114,114))
-            pad.paste(pil,(0,0))
-            blob  = np.array(pad,dtype=np.float32)/255.0
-            blob  = np.transpose(blob,(2,0,1))[np.newaxis]
-            input_name = self.session.get_inputs()[0].name
-            outputs    = self.session.run(None,{input_name:blob})
-            preds      = outputs[0][0].T  # (8400,nc+4)
-            dets = []
-            for pred in preds:
-                scores = pred[4:]
-                ci     = int(np.argmax(scores))
-                conf   = float(scores[ci])
-                if conf < conf_thresh: continue
-                cx,cy,pw,ph = pred[0],pred[1],pred[2],pred[3]
-                x1=int(max(0,(cx-pw/2)/scale)); y1=int(max(0,(cy-ph/2)/scale))
-                x2=int(min(w,(cx+pw/2)/scale)); y2=int(min(h,(cy+ph/2)/scale))
-                if x2<=x1 or y2<=y1: continue
-                cls_name = self.class_names[ci] if ci<len(self.class_names) else f"cls{ci}"
-                info     = PPE_CLASS_MAP.get(cls_name,{"label":cls_name,"severity":"info","alert":False,"icon":"📦","category":"object"})
+            if self.mode == "onnx":
+                return self._detect_onnx(image, confidence)
+            else:
+                return self._detect_pt(image, confidence)
+        except Exception as e:
+            logger.error(f"PPE detect error: {e}")
+            return []
+
+    def _detect_onnx(self, img: np.ndarray, conf_thresh: float) -> List[Dict]:
+        from PIL import Image
+        h, w = img.shape[:2]
+        SIZE  = 640
+        scale = min(SIZE/w, SIZE/h)
+        nw, nh = int(w*scale), int(h*scale)
+        pil = Image.fromarray(img).resize((nw,nh), Image.BILINEAR)
+        pad = Image.new("RGB",(SIZE,SIZE),(114,114,114))
+        pad.paste(pil,(0,0))
+        blob = np.array(pad,dtype=np.float32)/255.0
+        blob = np.transpose(blob,(2,0,1))[np.newaxis]
+        inp  = self.session.get_inputs()[0].name
+        out  = self.session.run(None,{inp:blob})
+        preds = out[0][0].T
+        dets = []
+        for pred in preds:
+            scores = pred[4:]
+            ci = int(np.argmax(scores))
+            conf = float(scores[ci])
+            if conf < conf_thresh: continue
+            cx,cy,pw,ph = pred[0],pred[1],pred[2],pred[3]
+            x1=int(max(0,(cx-pw/2)/scale)); y1=int(max(0,(cy-ph/2)/scale))
+            x2=int(min(w,(cx+pw/2)/scale)); y2=int(min(h,(cy+ph/2)/scale))
+            if x2<=x1 or y2<=y1: continue
+            cls_name = self.class_names[ci] if ci < len(self.class_names) else f"cls{ci}"
+            info = CLASS_INFO.get(cls_name, {"label":cls_name,"severity":"info","alert":False,"icon":"📦","color":"#94A3B8"})
+            dets.append({
+                "class":cls_name, "label":info["label"], "icon":info["icon"],
+                "category":"ppe", "severity":info["severity"],
+                "score":round(conf,3), "confidence":round(conf*100,1),
+                "bbox":[x1,y1,x2,y2], "center":[int((x1+x2)/2),int((y1+y2)/2)],
+                "alert":info["alert"], "color":info["color"], "module":"ppe",
+            })
+        dets.sort(key=lambda d:(d["severity"]=="critical",d["score"]), reverse=True)
+        return dets
+
+    def _detect_pt(self, img: np.ndarray, conf_thresh: float) -> List[Dict]:
+        results = self._pt_model.predict(img, conf=conf_thresh, verbose=False)
+        dets = []
+        for r in results:
+            if r.boxes is None: continue
+            for box in r.boxes:
+                cls_name = r.names[int(box.cls[0])]
+                conf = float(box.conf[0])
+                x1,y1,x2,y2 = [int(v) for v in box.xyxy[0].tolist()]
+                info = CLASS_INFO.get(cls_name, {"label":cls_name,"severity":"info","alert":False,"icon":"📦","color":"#94A3B8"})
                 dets.append({
-                    "class":cls_name,"label":info["label"],"icon":info["icon"],
-                    "category":info["category"],"severity":info["severity"],
-                    "score":round(conf,3),"confidence":round(conf*100,1),
-                    "bbox":[x1,y1,x2,y2],"center":[int((x1+x2)/2),int((y1+y2)/2)],
-                    "alert":info["alert"],"module":"ppe","model":"ppe_onnx",
+                    "class":cls_name, "label":info["label"], "icon":info["icon"],
+                    "category":"ppe", "severity":info["severity"],
+                    "score":round(conf,3), "confidence":round(conf*100,1),
+                    "bbox":[x1,y1,x2,y2], "center":[int((x1+x2)/2),int((y1+y2)/2)],
+                    "alert":info["alert"], "color":info["color"], "module":"ppe",
                 })
-            dets.sort(key=lambda d:(d["severity"]=="critical",d["score"]),reverse=True)
-            return dets
-        except Exception as e:
-            logger.error(f"PPE ONNX detect: {e}"); return []
-
-    def _detect_pt(self, img: np.ndarray, conf_thresh:float) -> List[Dict]:
-        try:
-            results = self._pt_model.predict(img, conf=conf_thresh, verbose=False)
-            dets = []
-            for r in results:
-                if r.boxes is None: continue
-                for box in r.boxes:
-                    cls_name = r.names[int(box.cls[0])]
-                    conf     = float(box.conf[0])
-                    x1,y1,x2,y2 = [int(v) for v in box.xyxy[0].tolist()]
-                    info = PPE_CLASS_MAP.get(cls_name,{"label":cls_name,"severity":"info","alert":False,"icon":"📦","category":"object"})
-                    dets.append({
-                        "class":cls_name,"label":info["label"],"icon":info["icon"],
-                        "category":info["category"],"severity":info["severity"],
-                        "score":round(conf,3),"confidence":round(conf*100,1),
-                        "bbox":[x1,y1,x2,y2],"center":[int((x1+x2)/2),int((y1+y2)/2)],
-                        "alert":info["alert"],"module":"ppe","model":"ppe_pytorch",
-                    })
-            return dets
-        except Exception as e:
-            logger.error(f"PPE PT detect: {e}"); return []
-
-    def get_compliance_score(self, dets:List[Dict]) -> Dict:
-        critical = [d for d in dets if d["severity"]=="critical" and d["alert"]]
-        warnings = [d for d in dets if d["severity"]=="warning"  and d["alert"]]
-        score    = max(0, 100 - len(critical)*25 - len(warnings)*10)
-        return {"score":score,"critical":len(critical),"warnings":len(warnings),
-                "violations":[d["label"] for d in critical+warnings],"compliant":score>=80}
+        return dets
 
     @property
     def status(self):
         return {
             "loaded":     self.loaded,
             "mode":       self.mode,
+            "model_path": self.model_path,
             "classes":    self.class_names,
-            "onnx_found": any(os.path.exists(p) for p in ONNX_PATHS),
-            "pt_found":   any(os.path.exists(p) for p in PT_PATHS),
+            "nc":         len(self.class_names),
+            "onnx_found": any(os.path.exists(p) for _,p in MODEL_PRIORITY if p.endswith(".onnx")),
+            "pt_found":   any(os.path.exists(p) for _,p in MODEL_PRIORITY if p.endswith(".pt")),
             "models_dir": os.listdir("models") if os.path.exists("models") else [],
         }
 
-_ppe:Optional[PPEDetector]=None
-def get_ppe_detector()->PPEDetector:
+_ppe: Optional[PPEDetector] = None
+def get_ppe_detector() -> PPEDetector:
     global _ppe
-    if _ppe is None: _ppe=PPEDetector()
+    if _ppe is None:
+        _ppe = PPEDetector()
     return _ppe

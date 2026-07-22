@@ -82,42 +82,47 @@ def get_db():
 async def startup():
     logger.info("🚀 Vision Guard AI Server v2.0 démarrage...")
     get_db()
-    # Télécharger ppe_final.onnx depuis Google Drive si absent
-    GDRIVE_FILE_ID = "1QMrXVYET8vqLG8elnkU6x8TQCM16zbTn"
-    onnx_dest = "models/ppe.onnx"
-    if not os.path.exists(onnx_dest):
-        try:
-            import urllib.request, subprocess, sys
-            os.makedirs("models", exist_ok=True)
-            logger.info("📥 Téléchargement ppe_final.onnx depuis Google Drive...")
-            # Installer gdown pour les gros fichiers Google Drive
-            subprocess.run([sys.executable,"-m","pip","install","gdown","-q"], capture_output=True)
-            import gdown
-            url = f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}"
-            gdown.download(url, onnx_dest, quiet=False, fuzzy=True)
-            if os.path.exists(onnx_dest):
-                size = os.path.getsize(onnx_dest)/1024/1024
-                logger.success(f"✅ models/ppe.onnx téléchargé ({size:.1f}MB)")
-            else:
-                logger.error("❌ Téléchargement échoué")
-        except Exception as e:
-            logger.error(f"❌ Google Drive download: {e}")
-
-    # Copier ppe.onnx et ppe.pt depuis le repo vers models/
+    # Copier TOUS les modèles PPE vers models/ (priorité ppe_final.pt)
     import shutil
     os.makedirs("models", exist_ok=True)
-    for fname, srcs in [
-        ("ppe.onnx", ["ppe.onnx", "/app/ppe.onnx"]),
-        ("ppe.pt",   ["ppe.pt",   "/app/ppe.pt"]),
-    ]:
+    MODEL_FILES = [
+        "ppe_final.pt", "ppe_final.onnx",
+        "ppe.pt",       "ppe.onnx",
+    ]
+    for fname in MODEL_FILES:
         dest = f"models/{fname}"
-        if not os.path.exists(dest):
-            for src in srcs:
-                if os.path.exists(src):
-                    shutil.copy2(src, dest)
-                    size = os.path.getsize(dest)/1024/1024
-                    logger.success(f"✅ {dest} copié depuis {src} ({size:.1f}MB)")
-                    break
+        if os.path.exists(dest):
+            continue
+        for src in [fname, f"/app/{fname}"]:
+            if os.path.exists(src):
+                shutil.copy2(src, dest)
+                size = os.path.getsize(dest)/1024/1024
+                logger.success(f"✅ {dest} copié ({size:.1f}MB)")
+                break
+
+    # Télécharger ppe_final.onnx depuis Google Drive si toujours absent
+    if not any(os.path.exists(f"models/{f}") for f in ["ppe_final.onnx","ppe.onnx"]):
+        try:
+            import subprocess, sys
+            subprocess.run([sys.executable,"-m","pip","install","gdown","-q"], capture_output=True)
+            import gdown
+            logger.info("📥 Téléchargement ppe.onnx depuis Google Drive...")
+            gdown.download("https://drive.google.com/uc?id=1QMrXVYET8vqLG8elnkU6x8TQCM16zbTn",
+                          "models/ppe.onnx", quiet=False, fuzzy=True)
+        except Exception as e:
+            logger.error(f"❌ Google Drive: {e}")
+
+    # Initialiser le détecteur PPE maintenant
+    try:
+        from detection.ppe_detector import get_ppe_detector
+        det = get_ppe_detector()
+        if det.loaded:
+            logger.success(f"✅ PPE Detector prêt: {det.mode} | {len(det.class_names)} classes | {det.model_path}")
+        else:
+            logger.error("❌ PPE Detector: aucun modèle chargé")
+    except Exception as e:
+        logger.error(f"❌ PPE init: {e}")
+
     logger.info(f"📂 models/: {os.listdir('models') if os.path.exists('models') else []}")
     logger.success("✅ Serveur prêt")
 
@@ -587,21 +592,20 @@ class PPERequest(BaseModel):
 
 @app.post("/detect/ppe")
 def detect_ppe(req: PPERequest):
-    # Vérifier modèle disponible
-    onnx_ok = any(os.path.exists(p) for p in ["models/ppe.onnx","ppe.onnx","/app/ppe.onnx"])
-    pt_ok   = any(os.path.exists(p) for p in ["models/ppe.pt","ppe.pt","/app/ppe.pt"])
-    if not onnx_ok and not pt_ok:
-        return {"error":"Modèle PPE absent","detections":[],"workers":[],"site_compliance":{"score":0}}
     try:
         from detection.ppe_detector import get_ppe_detector
         from detection.ppe_engine   import enrich_detections
         from PIL import Image
         import numpy as np, io
+
+        det = get_ppe_detector()
+        if not det.loaded:
+            return {"error":f"Modèle PPE non chargé. models/: {os.listdir('models') if os.path.exists('models') else []}","detections":[],"workers":[],"site_compliance":{"score":0}}
+
         b64 = req.image
         if "," in b64: b64 = b64.split(",")[1]
         img  = np.array(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB"))
-        det  = get_ppe_detector()
-        dets = det.detect(img, req.sector, req.confidence)
+        dets = det.detect(img, req.confidence)
 
         # Enrichir avec association personne-EPI et conformité
         result = enrich_detections(dets)
@@ -639,18 +643,8 @@ def ppe_status():
     try:
         from detection.ppe_detector import get_ppe_detector
         det = get_ppe_detector()
-        return {
-            "loaded":        det.loaded,
-            "mode":          det.mode,
-            "model_available":det.loaded,
-            "onnx_found":    any(os.path.exists(p) for p in ["models/ppe.onnx","ppe.onnx","/app/ppe.onnx"]),
-            "pt_found":      any(os.path.exists(p) for p in ["models/ppe.pt","ppe.pt","/app/ppe.pt"]),
-            "classes":       det.class_names,
-            "models_dir":    os.listdir("models") if os.path.exists("models") else [],
-            "map50":         0.923,
-            "trained_on":    "997 images Construction Safety (Roboflow)",
-            "accuracy":      "92.3% mAP50",
-        }
+        s = det.status
+        return {**s, "model_available": s["loaded"]}
     except Exception as e:
         return {"loaded":False,"error":str(e),"models_dir":os.listdir("models") if os.path.exists("models") else []}
 
