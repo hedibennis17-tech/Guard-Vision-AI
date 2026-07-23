@@ -1,5 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { collection, query, orderBy, limit, onSnapshot, doc, updateDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase/client";
+import { useOrganization } from "@/lib/context/OrganizationContext";
 import {
   normFromCoco, normFromCapture, toCanvas, drawBox,
   applyNMS, confirmDetection, cleanupFrameHistory,
@@ -45,6 +48,10 @@ export default function DiagnosticPage() {
   const [ppeStatus, setPpeStatus] = useState<any>(null);
   const [camLog,    setCamLog]    = useState("▶ Démarrer");
   const [debugMode, setDebugMode] = useState(false);
+  const [tab,       setTab]       = useState<"camera"|"events"|"notifs">("camera");
+  const [events,    setEvents]    = useState<any[]>([]);
+  const [notifs,    setNotifs]    = useState<any[]>([]);
+  const { currentOrg } = useOrganization();
 
   function addLog(msg:string,type="info"){
     setLogs(p=>[{time:new Date().toLocaleTimeString("fr-CA"),msg,type},...p].slice(0,80));
@@ -210,6 +217,9 @@ export default function DiagnosticPage() {
         ...afterNMS
       ];
 
+      // Sauvegarder les alertes critiques dans Firebase (throttle 60s)
+      afterNMS.filter(d=>d.alert||d.severity==="critical").forEach(d=>saveDetectionEvent(d));
+
       setModels(p=>p.map(m=>m.id===modelId?{...m,status:"ok",detections:afterNMS,workers,latency:Date.now()-t0}:m));
       addLog(`${modelId}: ${afterNMS.length}/${newDets.length} det (NMS) ${workers.length?`| ${workers.length} workers`:""}  — ${Date.now()-t0}ms`,"ok");
 
@@ -291,10 +301,50 @@ export default function DiagnosticPage() {
   }
 
   useEffect(()=>{ fetchStatus(); const iv=setInterval(fetchStatus,20000); return()=>clearInterval(iv); },[]);
+
+  // Firebase events + notifs temps réel
+  useEffect(()=>{
+    if(!currentOrg?.id) return;
+    const unsubEv = onSnapshot(
+      query(collection(db,"organizations",currentOrg.id,"events"), orderBy("createdAt","desc"), limit(50)),
+      snap=>setEvents(snap.docs.map(d=>({id:d.id,...d.data()}))),
+      ()=>{}
+    );
+    const unsubNo = onSnapshot(
+      query(collection(db,"organizations",currentOrg.id,"notifications"), orderBy("createdAt","desc"), limit(50)),
+      snap=>setNotifs(snap.docs.map(d=>({id:d.id,...d.data()}))),
+      ()=>{}
+    );
+    return()=>{ unsubEv(); unsubNo(); };
+  },[currentOrg?.id]);
+
+  // Sauvegarder détections dans Firebase events (throttle 60s par classe)
+  const lastEvRef = useRef<Record<string,number>>({});
+  function saveDetectionEvent(det: NormalizedDetection){
+    if(!currentOrg?.id) return;
+    const now=Date.now();
+    if((now-(lastEvRef.current[det.class]??0))<60000) return;
+    lastEvRef.current[det.class]=now;
+    const evId=`diag_${det.class}_${now}`;
+    import("firebase/firestore").then(({setDoc,doc:fDoc})=>{
+      setDoc(fDoc(db,"organizations",currentOrg.id,"events",evId),{
+        id:evId, organizationId:currentOrg.id, cameraId:"diagnostic",
+        primaryType:det.class, label:det.label, category:det.source==="ppe"?"ppe":"detection",
+        severity:det.severity, score:det.score, acknowledged:false,
+        clipStatus:"none", durationSeconds:0, thumbnailUrl:null, videoClipUrl:null,
+        createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(),
+        source:"diagnostic_page",
+      }).catch(()=>{});
+    });
+  }
   useEffect(()=>()=>{ streamRef.current?.getTracks().forEach(t=>t.stop()); cancelAnimationFrame(animRef.current); },[]);
 
   const totalDets=models.reduce((a,m)=>a+m.detections.length,0);
   const totalWorkers=models.reduce((a,m)=>a+m.workers.length,0);
+  const unreadEv=events.filter(e=>!e.acknowledged).length;
+  const unreadNo=notifs.filter(n=>!n.read).length;
+  const SEV=(s?:string)=>s==="critical"?"#EF4444":s==="warning"?"#F59E0B":"#64748B";
+  const FMT=(iso:string)=>{try{return new Date(iso).toLocaleTimeString("fr-CA",{hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch{return iso?.slice(11,19)||"—";}};
 
   return (
     <div className="space-y-4 pb-10">
@@ -469,23 +519,131 @@ export default function DiagnosticPage() {
         </div>
       )}
 
-      {/* Logs */}
-      <div className="rounded-xl border border-slate-800 bg-black overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
-          <span className="text-xs font-bold text-slate-400">📋 LOGS ({logs.length})</span>
-          <button onClick={()=>setLogs([])} className="text-xs text-slate-600 hover:text-red-400">Effacer</button>
-        </div>
-        <div className="p-3 font-mono text-xs space-y-0.5 max-h-52 overflow-y-auto">
-          {logs.length===0
-            ? <p className="text-slate-600">En attente...</p>
-            : logs.map((l,i)=>(
-              <p key={i} className={l.type==="ok"?"text-emerald-400":l.type==="err"?"text-red-400":l.type==="warn"?"text-amber-400":"text-slate-400"}>
-                <span className="text-slate-700">{l.time} </span>{l.msg}
-              </p>
-            ))
-          }
+      {/* ── TABS ── */}
+      <div className="sticky bottom-0 z-10 bg-slate-950 border-t border-slate-800 -mx-4 px-4 pt-3 pb-2">
+        <div className="flex gap-1">
+          {([
+            {id:"camera", label:"🤖 IA Détection", badge:totalDets},
+            {id:"events", label:"🚨 Events",        badge:unreadEv},
+            {id:"notifs", label:"🔔 Notifications", badge:unreadNo},
+          ] as const).map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition-all ${tab===t.id?"bg-brand text-white":"bg-slate-900 text-slate-400 hover:text-white"}`}>
+              {t.label}
+              {t.badge>0 && <span className={`rounded-full px-1.5 py-0.5 text-xs font-bold ${tab===t.id?"bg-white/20":"bg-brand/20 text-brand"}`}>{t.badge}</span>}
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* ── TAB: IA DÉTECTION (LOGS) ── */}
+      {tab==="camera" && (
+        <div className="rounded-xl border border-slate-800 bg-black overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
+            <span className="text-xs font-bold text-slate-400">📋 LOGS TEMPS RÉEL ({logs.length})</span>
+            <button onClick={()=>setLogs([])} className="text-xs text-slate-600 hover:text-red-400">Effacer</button>
+          </div>
+          <div className="p-3 font-mono text-xs space-y-0.5 max-h-64 overflow-y-auto">
+            {logs.length===0
+              ? <p className="text-slate-600">Activez un modèle pour voir les logs...</p>
+              : logs.map((l,i)=>(
+                <p key={i} className={l.type==="ok"?"text-emerald-400":l.type==="err"?"text-red-400":l.type==="warn"?"text-amber-400":"text-slate-400"}>
+                  <span className="text-slate-700">{l.time} </span>{l.msg}
+                </p>
+              ))
+            }
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: EVENTS ── */}
+      {tab==="events" && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-white">🚨 Events — {events.length} total · {unreadEv} ouverts</p>
+            {currentOrg?.id && <span className="text-xs text-slate-500">Org: {currentOrg.id.slice(0,8)}...</span>}
+          </div>
+          {!currentOrg?.id && (
+            <div className="rounded-xl border border-amber-800/40 bg-amber-900/10 p-4 text-xs text-amber-400">
+              ⚠️ Organisation non chargée — démarrez la caméra d'abord pour initialiser
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              {l:"Total",    v:events.length,                                      c:"text-white"},
+              {l:"Critiques",v:events.filter(e=>e.severity==="critical").length,   c:"text-red-400"},
+              {l:"Avec clips",v:events.filter(e=>e.videoClipUrl).length,           c:"text-blue-400"},
+            ].map(k=>(
+              <div key={k.l} className="rounded-xl border border-slate-800 bg-slate-900 p-3 text-center">
+                <p className={`text-xl font-bold ${k.c}`}>{k.v}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{k.l}</p>
+              </div>
+            ))}
+          </div>
+          {events.length===0
+            ? <div className="rounded-xl border border-slate-800 bg-slate-900 py-10 text-center"><p className="text-4xl mb-2">📭</p><p className="text-sm text-slate-400">Aucun event — activez l'IA pour détecter</p></div>
+            : <div className="space-y-2">
+                {events.map(ev=>(
+                  <div key={ev.id} className={`rounded-xl border p-3.5 ${ev.severity==="critical"?"border-red-800/40 bg-red-900/10":ev.severity==="warning"?"border-amber-800/40 bg-amber-900/10":"border-slate-800 bg-slate-900"}`}>
+                    <div className="flex items-start gap-3">
+                      <span className="text-xl shrink-0">{ev.severity==="critical"?"🚨":ev.severity==="warning"?"⚠️":"ℹ️"}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-white truncate">{ev.label||ev.primaryType}</p>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          <span className="text-xs font-bold" style={{color:SEV(ev.severity)}}>{ev.severity||"info"}</span>
+                          <span className="text-xs text-slate-500">{FMT(ev.createdAt)}</span>
+                          <span className="text-xs text-slate-600">{ev.source||ev.category||""}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {ev.videoClipUrl && <span className="text-blue-400 text-sm">🎬</span>}
+                        {!ev.acknowledged && currentOrg?.id && (
+                          <button onClick={()=>updateDoc(doc(db,"organizations",currentOrg.id,"events",ev.id),{acknowledged:true}).catch(()=>{})}
+                            className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-400 hover:text-emerald-400 hover:border-emerald-700">✓</button>
+                        )}
+                      </div>
+                    </div>
+                    {ev.videoClipUrl && <video src={ev.videoClipUrl} controls className="mt-2 w-full rounded-lg max-h-32 bg-black"/>}
+                  </div>
+                ))}
+              </div>
+          }
+        </div>
+      )}
+
+      {/* ── TAB: NOTIFICATIONS ── */}
+      {tab==="notifs" && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-white">🔔 Notifications — {notifs.length} total · {unreadNo} non lues</p>
+            {unreadNo>0 && currentOrg?.id && (
+              <button onClick={()=>notifs.filter(n=>!n.read).forEach(n=>updateDoc(doc(db,"organizations",currentOrg.id,"notifications",n.id),{read:true}).catch(()=>{}))}
+                className="text-xs text-brand hover:underline">Tout lire</button>
+            )}
+          </div>
+          {notifs.length===0
+            ? <div className="rounded-xl border border-slate-800 bg-slate-900 py-10 text-center"><p className="text-4xl mb-2">🔕</p><p className="text-sm text-slate-400">Aucune notification</p></div>
+            : <div className="space-y-2">
+                {notifs.map(n=>(
+                  <div key={n.id} className={`flex items-start gap-3 rounded-xl border p-3.5 transition-all ${!n.read?"border-slate-700 bg-slate-900":"border-slate-800 bg-slate-950 opacity-60"}`}>
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xl" style={{background:SEV(n.severity)+"20"}}>
+                      {n.severity==="critical"?"🚨":n.severity==="warning"?"⚠️":"ℹ️"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-white">{n.title}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{n.body}</p>
+                      <p className="text-xs text-slate-600 mt-1">{FMT(n.createdAt)}</p>
+                    </div>
+                    {!n.read && currentOrg?.id && (
+                      <button onClick={()=>updateDoc(doc(db,"organizations",currentOrg.id,"notifications",n.id),{read:true}).catch(()=>{})}
+                        className="shrink-0 h-3 w-3 rounded-full bg-brand mt-1"/>
+                    )}
+                  </div>
+                ))}
+              </div>
+          }
+        </div>
+      )}
     </div>
   );
 }
