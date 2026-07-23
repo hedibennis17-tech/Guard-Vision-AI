@@ -1,323 +1,427 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-interface Model {
-  id:string; name:string; icon:string; status:string; where:string;
-  deployed:boolean; real_status:string; detects:string[]; limitation:string; action:string;
-}
-interface DiagData {
-  timestamp:string;
-  server:{ url:string; online:boolean; latency:string|null; details:any };
-  summary:{ total:number; running:number; fallback:number; missing:number; needs_gpu:number };
-  honest_summary:string[];
-  priority_actions:{ num:number; task:string; how:string; impact:string; effort:string; urgent?:boolean }[];
-  models:Model[];
-}
+const SERVER = process.env.NEXT_PUBLIC_AI_SERVER_URL ?? "https://guard-vision-ai-production.up.railway.app";
 
-const STATUS_STYLE:Record<string,{badge:string;card:string;dot:string}> = {
-  running:        {badge:"bg-emerald-900 text-emerald-400",     card:"border-emerald-800/40 bg-emerald-900/10", dot:"bg-emerald-400 animate-pulse"},
-  fallback_active:{badge:"bg-amber-900 text-amber-400",         card:"border-amber-800/40 bg-amber-900/10",    dot:"bg-amber-400"},
-  partial:        {badge:"bg-amber-900 text-amber-400",         card:"border-amber-800/40 bg-amber-900/10",    dot:"bg-amber-400"},
-  not_deployed:   {badge:"bg-red-900 text-red-400",             card:"border-red-900/30 bg-red-900/10",       dot:"bg-red-500"},
-  weights_missing:{badge:"bg-red-900 text-red-400",             card:"border-red-900/30 bg-red-900/10",       dot:"bg-red-500"},
-  needs_gpu:      {badge:"bg-slate-800 text-slate-500",         card:"border-slate-800 bg-slate-900",         dot:"bg-slate-600"},
-};
-const STATUS_LABEL:Record<string,string> = {
-  running:"✅ Actif", fallback_active:"⚠️ Fallback", partial:"🟡 Partiel",
-  not_deployed:"🔴 Non déployé", weights_missing:"🔴 Poids manquants", needs_gpu:"⚫ GPU requis",
-};
+// ── Types ────────────────────────────────────────────────────────────────────
+interface ModelResult { class:string; label:string; score:number; bbox?:number[]; color?:string; icon?:string; severity?:string; }
+interface ModelStatus { id:string; name:string; icon:string; enabled:boolean; status:"idle"|"loading"|"ok"|"error"; results:ModelResult[]; error?:string; latency?:number; }
 
-export default function DiagPage() {
-  const [data,    setData]    = useState<DiagData|null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string|null>(null);
-  const [filter,     setFilter]     = useState<"all"|"active"|"missing">("all");
-  const [ppeTraining, setPpeTraining] = useState(false);
-  const [ppeLogs,     setPpeLogs]     = useState<string[]>([]);
-  const [showPpeLogs, setShowPpeLogs] = useState(false);
+const MODELS: Omit<ModelStatus,"status"|"results"|"enabled">[] = [
+  { id:"coco",     name:"COCO-SSD (navigateur)",          icon:"🌐" },
+  { id:"yolo",     name:"YOLOv11 ONNX (Railway)",         icon:"⚡" },
+  { id:"ppe",      name:"PPE Detector (Railway)",          icon:"⛑️" },
+  { id:"ppe_full", name:"PPE Engine + Workers (Railway)",  icon:"👷" },
+  { id:"ocr",      name:"OCR Tesseract (Railway)",         icon:"🔤" },
+];
 
-  async function startPpeTraining() {
-    const serverUrl = process.env.NEXT_PUBLIC_AI_SERVER_URL;
-    if (!serverUrl) { alert("NEXT_PUBLIC_AI_SERVER_URL non configuré dans Vercel"); return; }
-    setPpeTraining(true);
-    setPpeLogs(["🚀 Démarrage entraînement PPE..."]);
-    setShowPpeLogs(true);
+const MODULES = [
+  {id:"construction", label:"Construction Safety",  icon:"🏗️"},
+  {id:"industrial",   label:"Industrial Safety",    icon:"🏭"},
+  {id:"home_security",label:"Home Security",        icon:"🏠"},
+  {id:"retail",       label:"Retail Intelligence",  icon:"🛒"},
+  {id:"transportation",label:"TrafficGuard",        icon:"🚗"},
+  {id:"agriculture",  label:"AgriGuard",            icon:"🌾"},
+  {id:"smart_city",   label:"Smart City",           icon:"🌆"},
+  {id:"defense",      label:"Defense Shield",       icon:"🛡️"},
+];
+
+const SEV_COLOR = (s?:string) => s==="critical"?"#EF4444":s==="warning"?"#F59E0B":s==="info"?"#10B981":"#64748B";
+
+export default function DiagnosticAIPage() {
+  const videoRef   = useRef<HTMLVideoElement>(null);
+  const streamRef  = useRef<MediaStream|null>(null);
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
+  const animRef    = useRef<number>(0);
+  const resultsRef = useRef<ModelResult[]>([]);
+
+  const [streaming,  setStreaming]  = useState(false);
+  const [facing,     setFacing]     = useState<"user"|"environment">("environment");
+  const [recording,  setRecording]  = useState(false);
+  const [models,     setModels]     = useState<ModelStatus[]>(
+    MODELS.map(m=>({...m, enabled:false, status:"idle", results:[]}))
+  );
+  const [activeModule, setActiveModule] = useState("construction");
+  const [railwayStatus, setRailwayStatus] = useState<any>(null);
+  const [railwayLogs,   setRailwayLogs]   = useState<string[]>([]);
+  const [allResults,    setAllResults]    = useState<ModelResult[]>([]);
+  const [log,           setLog]           = useState("▶ Démarrer la caméra");
+  const [autoRun,       setAutoRun]       = useState(false);
+  const autoRef = useRef<NodeJS.Timeout|null>(null);
+
+  // ── Caméra ────────────────────────────────────────────────────────────────
+  async function startCam(face:"user"|"environment"=facing) {
+    streamRef.current?.getTracks().forEach(t=>t.stop());
     try {
-      await fetch(`${serverUrl}/ppe/start-training`, { method:"POST" });
-      // Poller les logs toutes les 10 secondes
-      const interval = setInterval(async () => {
-        try {
-          const r = await fetch(`${serverUrl}/ppe/train-status`, { cache:"no-store" });
-          const d = await r.json();
-          setPpeLogs(d.last_logs ?? []);
-          if (d.ppe_pt_exists) {
-            clearInterval(interval);
-            setPpeTraining(false);
-            setPpeLogs(prev => [...prev, "✅ ppe.pt créé! Rechargez le diagnostic."]);
-            run(); // Refresh diagnostic
-          }
-          if (!d.training_running && !d.ppe_pt_exists) {
-            clearInterval(interval);
-            setPpeTraining(false);
-          }
-        } catch {}
-      }, 10000);
-    } catch(e:any) {
-      setPpeLogs([`❌ Erreur: ${e.message}`]);
-      setPpeTraining(false);
+      let stream:MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: face==="environment"?{facingMode:{exact:"environment"},width:{ideal:1280},height:{ideal:720}}:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},
+          audio:false
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:face},audio:false});
+      }
+      streamRef.current = stream;
+      if (videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play().catch(()=>{});}
+      setStreaming(true); setFacing(face);
+      setLog(`✅ Caméra ${face==="environment"?"arrière":"avant"} active`);
+    } catch(e:any){setLog(`❌ ${e.message}`);}
+  }
+
+  function stopCam(){
+    streamRef.current?.getTracks().forEach(t=>t.stop());
+    if(videoRef.current) videoRef.current.srcObject=null;
+    setStreaming(false); setAutoRun(false);
+    setLog("Caméra arrêtée");
+  }
+
+  function toggleFacing(){
+    const n=facing==="environment"?"user":"environment";
+    setFacing(n); if(streaming) startCam(n);
+  }
+
+  // ── Canvas overlay ────────────────────────────────────────────────────────
+  useEffect(()=>{
+    const canvas=canvasRef.current; const video=videoRef.current;
+    if(!canvas||!video) return;
+    function draw(){
+      const ctx=canvas!.getContext("2d"); if(!ctx||!video) {animRef.current=requestAnimationFrame(draw);return;}
+      canvas!.width=video.clientWidth; canvas!.height=video.clientHeight;
+      ctx.clearRect(0,0,canvas!.width,canvas!.height);
+      const sx=canvas!.width/(video.videoWidth||canvas!.width);
+      const sy=canvas!.height/(video.videoHeight||canvas!.height);
+      for(const det of resultsRef.current){
+        if(!det.bbox?.length) continue;
+        const [x1,y1,x2,y2]=det.bbox;
+        const color=det.color||(det.severity==="critical"?"#EF4444":det.severity==="warning"?"#F59E0B":"#10B981");
+        ctx.strokeStyle=color; ctx.lineWidth=2.5;
+        ctx.strokeRect(x1*sx,y1*sy,(x2-x1)*sx,(y2-y1)*sy);
+        ctx.fillStyle=color+"CC"; ctx.fillRect(x1*sx,y1*sy-20,(x2-x1)*sx,20);
+        ctx.fillStyle="#FFF"; ctx.font="bold 11px sans-serif";
+        ctx.fillText(`${det.icon||""} ${det.label} ${Math.round(det.score*100)}%`,x1*sx+3,y1*sy-5);
+      }
+      animRef.current=requestAnimationFrame(draw);
+    }
+    animRef.current=requestAnimationFrame(draw);
+    return()=>cancelAnimationFrame(animRef.current);
+  },[]);
+
+  // ── Capture frame ─────────────────────────────────────────────────────────
+  const captureFrame = useCallback(():string|null=>{
+    const v=videoRef.current; if(!v||!v.videoWidth) return null;
+    const c=document.createElement("canvas");
+    c.width=Math.min(v.videoWidth,640); c.height=Math.min(v.videoHeight,480);
+    c.getContext("2d")?.drawImage(v,0,0,c.width,c.height);
+    return c.toDataURL("image/jpeg",0.75).split(",")[1];
+  },[]);
+
+  // ── Tester un modèle ──────────────────────────────────────────────────────
+  async function testModel(modelId:string){
+    const frame=captureFrame(); if(!frame){setLog("❌ Caméra inactive"); return;}
+    setModels(prev=>prev.map(m=>m.id===modelId?{...m,status:"loading",results:[],error:undefined}:m));
+    const t0=Date.now();
+    try{
+      let dets:ModelResult[]=[];
+      if(modelId==="coco"){
+        // COCO-SSD navigateur
+        const tf=await import("@tensorflow/tfjs");
+        const cocoSsd=await import("@tensorflow-models/coco-ssd");
+        await tf.ready();
+        const mdl=await cocoSsd.load();
+        const v=videoRef.current!;
+        const preds=await mdl.detect(v);
+        dets=preds.map(p=>({class:p.class,label:p.class,score:p.score,bbox:[p.bbox[0],p.bbox[1],p.bbox[0]+p.bbox[2],p.bbox[1]+p.bbox[3]],color:"#3B82F6",icon:"🌐"}));
+      } else if(modelId==="yolo"){
+        const r=await fetch(`${SERVER}/detect`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame,module_id:activeModule,confidence:0.40}),signal:AbortSignal.timeout(10000)});
+        const d=await r.json(); dets=d.detections??[];
+      } else if(modelId==="ppe"){
+        const r=await fetch(`${SERVER}/detect/ppe`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame,sector:activeModule,confidence:0.40,organization_id:"",camera_id:""}),signal:AbortSignal.timeout(10000)});
+        const d=await r.json(); dets=d.detections??[];
+      } else if(modelId==="ppe_full"){
+        const r=await fetch(`${SERVER}/detect/ppe`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame,sector:activeModule,confidence:0.35,organization_id:"",camera_id:""}),signal:AbortSignal.timeout(10000)});
+        const d=await r.json();
+        dets=d.detections??[];
+        // Ajouter workers
+        for(const w of d.workers??[]){
+          if(w.bbox) dets=[{class:"worker",label:`👷 #${w.worker_id} ${w.score}%`,score:w.score/100,bbox:w.bbox,color:w.color,icon:w.compliant?"✅":"❌",severity:w.compliant?"info":"critical"},...dets];
+        }
+      } else if(modelId==="ocr"){
+        const r=await fetch(`${SERVER}/ocr/analyze`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame}),signal:AbortSignal.timeout(15000)});
+        const d=await r.json();
+        dets=(d.results??[]).map((o:any)=>({class:"text",label:o.text||"Texte",score:o.confidence??0.8,icon:"🔤",color:"#8B5CF6"}));
+      }
+      const latency=Date.now()-t0;
+      resultsRef.current=[...resultsRef.current.filter(r=>!dets.find(d=>d.class===r.class)),...dets];
+      setAllResults(prev=>{
+        const map=new Map(prev.map(r=>[r.class,r]));
+        dets.forEach(d=>map.set(d.class,d));
+        return Array.from(map.values());
+      });
+      setModels(prev=>prev.map(m=>m.id===modelId?{...m,status:"ok",results:dets,latency}:m));
+      setLog(`✅ ${modelId}: ${dets.length} détection(s) en ${latency}ms`);
+    } catch(e:any){
+      setModels(prev=>prev.map(m=>m.id===modelId?{...m,status:"error",error:e.message,latency:Date.now()-t0}:m));
+      setLog(`❌ ${modelId}: ${e.message}`);
     }
   }
 
-  const [ppeStatus, setPpeStatus] = useState<any>(null);
+  // ── Tout tester ──────────────────────────────────────────────────────────
+  async function testAll(){
+    const enabled=models.filter(m=>m.enabled);
+    if(!enabled.length){setLog("⚠️ Activez au moins un modèle"); return;}
+    resultsRef.current=[];
+    setAllResults([]);
+    for(const m of enabled) await testModel(m.id);
+  }
 
-  async function run() {
-    setLoading(true); setError(null);
-    try {
-      const [diagRes, ppeRes] = await Promise.all([
-        fetch("/api/ai-diagnostic", { cache:"no-store" }),
-        fetch("/api/ppe", { cache:"no-store" }),
+  // ── Auto-run toutes les 3s ────────────────────────────────────────────────
+  useEffect(()=>{
+    if(autoRef.current) clearInterval(autoRef.current);
+    if(autoRun && streaming){
+      autoRef.current=setInterval(testAll, 3000);
+    }
+    return()=>{if(autoRef.current) clearInterval(autoRef.current);};
+  },[autoRun, streaming, models]);
+
+  // ── Railway status + logs ─────────────────────────────────────────────────
+  async function fetchRailway(){
+    try{
+      const [h,p]=await Promise.all([
+        fetch(`${SERVER}/health`,{signal:AbortSignal.timeout(5000),cache:"no-store"}),
+        fetch(`${SERVER}/ppe/train-status`,{signal:AbortSignal.timeout(5000),cache:"no-store"}),
       ]);
-      if (!diagRes.ok) throw new Error(`HTTP ${diagRes.status}`);
-      const json = await diagRes.json();
-      if (!json.models) throw new Error("Format de réponse invalide");
-      setData(json);
-      if (ppeRes.ok) { const p = await ppeRes.json(); setPpeStatus(p); }
-    } catch(e:any) {
-      setError(e.message ?? "Erreur inconnue");
-    } finally {
-      setLoading(false);
-    }
+      const hd=await h.json();
+      const pd=await p.json().catch(()=>({}));
+      setRailwayStatus({...hd,...pd});
+      setRailwayLogs(pd.last_logs??[]);
+    } catch(e:any){setRailwayStatus({error:e.message});}
   }
 
-  useEffect(()=>{ run(); },[]);
+  useEffect(()=>{fetchRailway(); const iv=setInterval(fetchRailway,15000); return()=>clearInterval(iv);},[]);
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center py-24 gap-4">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent"/>
-      <p className="text-slate-400">Diagnostic en cours...</p>
-    </div>
-  );
-
-  if (error || !data) return (
-    <div className="text-center py-20">
-      <p className="text-4xl mb-3">⚠️</p>
-      <p className="text-red-400 font-medium mb-2">Erreur</p>
-      <p className="text-slate-500 text-sm mb-4">{error}</p>
-      <button onClick={run} className="rounded-xl bg-brand px-4 py-2 text-sm text-white">Réessayer</button>
-    </div>
-  );
-
-  const { server, summary, honest_summary=[], priority_actions=[], models=[] } = data;
-
-  const filtered = models.filter(m => {
-    if (filter==="active")  return m.deployed || m.status==="fallback_active";
-    if (filter==="missing") return !m.deployed && m.status!=="running";
-    return true;
-  });
+  const enabledCount=models.filter(m=>m.enabled).length;
+  const totalDets=allResults.length;
+  const criticalDets=allResults.filter(r=>r.severity==="critical").length;
 
   return (
-    <div className="space-y-6">
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">🔬 Diagnostic IA</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {new Date(data.timestamp).toLocaleString("fr-CA")}
-          </p>
-        </div>
-        <button onClick={run}
-          className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-brand hover:text-brand transition-colors">
-          🔄 Actualiser
-        </button>
+    <div className="space-y-5 pb-10">
+      <div>
+        <h1 className="text-2xl font-bold text-white">🔬 Diagnostic IA Complet</h1>
+        <p className="text-sm text-slate-400 mt-1">Testez chaque modèle individuellement · Visualisez les segmentations · Logs Railway temps réel</p>
       </div>
 
-      {/* Serveur Railway */}
-      <div className={`rounded-xl border p-4 ${server.online?"border-emerald-800/40 bg-emerald-900/10":"border-red-800/40 bg-red-900/10"}`}>
-        <div className="flex items-center gap-3 mb-1">
-          <span className={`h-3 w-3 rounded-full shrink-0 ${server.online?"bg-emerald-400 animate-pulse":"bg-red-500"}`}/>
-          <p className="text-sm font-bold text-white">
-            Serveur Python Railway — {server.online ? "🟢 EN LIGNE" : "🔴 HORS LIGNE"}
-          </p>
-          {server.latency && (
-            <span className="rounded-full bg-emerald-900/50 px-2 py-0.5 text-xs text-emerald-400">{server.latency}</span>
-          )}
-        </div>
-        <p className="text-xs font-mono text-slate-400 mt-1">{server.url}</p>
-        {!server.online && (
-          <div className="mt-2 rounded-lg bg-red-900/20 border border-red-800/30 p-2.5">
-            <p className="text-xs font-bold text-red-400 mb-1">⚡ Action requise :</p>
-            <p className="text-xs text-slate-300">Vercel → Settings → Environment Variables → Add :</p>
-            <code className="text-xs text-brand">NEXT_PUBLIC_AI_SERVER_URL = https://guard-vision-ai-production.up.railway.app</code>
-            <p className="text-xs text-slate-400 mt-1">Puis Save → Redeploy</p>
-          </div>
-        )}
-      </div>
-
-      {/* PPE Status temps réel */}
-      {ppeStatus && (
-        <div className={`rounded-xl border p-4 ${ppeStatus.ppe_pt_exists?"border-emerald-700 bg-emerald-900/15":"border-red-800/40 bg-red-900/10"}`}>
-          <div className="flex items-center gap-3">
-            <span className={`h-4 w-4 rounded-full shrink-0 ${ppeStatus.ppe_pt_exists?"bg-emerald-400":"bg-red-500"}`}/>
-            <div className="flex-1">
-              <p className="text-sm font-bold text-white">
-                {ppeStatus.ppe_pt_exists
-                  ? "✅ YOLOv11 PPE Custom — ACTIF (mAP50: 92.3%)"
-                  : "🔴 YOLOv11 PPE Custom — models/ppe.pt absent"}
-              </p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {ppeStatus.ppe_pt_exists
-                  ? "helmet ✅ / no_helmet 🚨 / safety_vest ✅ / no_vest 🚨 / person 👷"
-                  : "Uploader ppe.pt sur GitHub → apps/ai-server/"}
-              </p>
-            </div>
-            <span className="text-xs text-slate-500 shrink-0">
-              {ppeStatus.models_dir?.join(", ")||"vide"}
+      {/* ── Railway Status ── */}
+      <div className={`rounded-xl border p-4 ${railwayStatus?.error?"border-red-800/40 bg-red-900/10":"border-emerald-800/40 bg-emerald-900/10"}`}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className={`h-3 w-3 rounded-full ${railwayStatus?.error?"bg-red-500":"bg-emerald-400 animate-pulse"}`}/>
+            <span className="text-sm font-bold text-white">
+              {railwayStatus?.error?"❌ Railway hors ligne":`✅ Railway v${railwayStatus?.version||"..."}`}
             </span>
           </div>
+          <button onClick={fetchRailway} className="text-xs text-slate-500 hover:text-white">🔄</button>
         </div>
-      )}
-
-      {/* Compteurs */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          {label:"Actifs",       value:summary.running,   color:"text-emerald-400", border:"border-emerald-800/30 bg-emerald-900/10"},
-          {label:"Fallback",     value:summary.fallback,  color:"text-amber-400",   border:"border-amber-800/30 bg-amber-900/10"},
-          {label:"Non déployés", value:summary.missing,   color:"text-red-400",     border:"border-red-800/30 bg-red-900/10"},
-          {label:"GPU requis",   value:summary.needs_gpu, color:"text-slate-400",   border:"border-slate-700 bg-slate-900"},
-        ].map(k=>(
-          <div key={k.label} className={`rounded-xl border p-3 text-center ${k.border}`}>
-            <p className={`text-3xl font-bold ${k.color}`}>{k.value ?? 0}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{k.label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Résumé honnête */}
-      {honest_summary.length > 0 && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-          <h3 className="text-xs font-bold text-slate-400 mb-2">📋 RÉSUMÉ HONNÊTE</h3>
-          <ul className="space-y-1">
-            {honest_summary.map((s,i)=>(
-              <li key={i} className="text-sm text-white">{s}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Actions prioritaires */}
-      {priority_actions.length > 0 && (
-        <div className="rounded-xl border border-brand/30 bg-brand/5 p-4">
-          <h3 className="text-sm font-bold text-brand mb-4">🚀 Actions prioritaires</h3>
-          <div className="space-y-4">
-            {priority_actions.map(a=>(
-              <div key={a.num} className={`flex gap-3 rounded-xl p-3 ${a.urgent?"border border-red-700 bg-red-900/10":""}`}>
-                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${a.urgent?"bg-red-600":"bg-brand"}`}>
-                  {a.urgent ? "❗" : a.num}
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-white">{a.task}</p>
-                  <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">Comment: {a.how}</p>
-                  <p className="text-xs text-emerald-400 mt-0.5">Impact: {a.impact}</p>
-                  <p className="text-xs text-brand/70 mt-0.5">Effort: {a.effort}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* PPE Training */}
-      <div className="rounded-xl border border-amber-800/40 bg-amber-900/10 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h3 className="text-sm font-bold text-amber-400">🏋️ Entraîner YOLOv11 PPE Custom</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Lance le téléchargement dataset Roboflow + entraînement sur Railway</p>
-          </div>
-          <button onClick={startPpeTraining} disabled={ppeTraining || data?.models?.find(m=>m.id==="ppe_custom")?.deployed}
-            className="shrink-0 rounded-xl px-4 py-2 text-sm font-bold text-white disabled:opacity-50 transition-colors"
-            style={{background: ppeTraining ? "#6B7280" : "#F59E0B"}}>
-            {ppeTraining ? "⏳ En cours..." : "▶ Lancer"}
-          </button>
-        </div>
-        {ppeLogs.length > 0 && (
-          <div className="rounded-lg bg-black/40 p-3 font-mono text-xs space-y-1 max-h-40 overflow-y-auto">
-            {ppeLogs.map((l,i) => (
-              <p key={i} className={l.startsWith("✅")||l.startsWith("🎉") ? "text-emerald-400" : l.startsWith("❌") ? "text-red-400" : "text-slate-300"}>{l}</p>
-            ))}
+        {railwayStatus && !railwayStatus.error && (
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="rounded-lg bg-slate-900 p-2 text-center">
+              <p className={`font-bold ${railwayStatus.ppe_pt_exists?"text-emerald-400":"text-red-400"}`}>
+                {railwayStatus.ppe_pt_exists?"✅":"❌"} PPE
+              </p>
+              <p className="text-slate-500 mt-0.5">{railwayStatus.models_dir?.length||0} modèles</p>
+            </div>
+            <div className="rounded-lg bg-slate-900 p-2 text-center">
+              <p className="font-bold text-blue-400">{railwayStatus.nc||"?"} classes</p>
+              <p className="text-slate-500 mt-0.5">PPE actif</p>
+            </div>
+            <div className="rounded-lg bg-slate-900 p-2 text-center">
+              <p className="font-bold text-amber-400">{railwayStatus.mode||"onnx"}</p>
+              <p className="text-slate-500 mt-0.5">Mode</p>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Filtres */}
-      <div className="flex gap-2 flex-wrap">
-        {(["all","active","missing"] as const).map(f=>(
-          <button key={f} onClick={()=>setFilter(f)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              filter===f?"bg-brand text-white":"border border-slate-700 text-slate-400 hover:text-white"
-            }`}>
-            {f==="all"?"🌐 Tous":f==="active"?"✅ Actifs":"❌ Manquants"}
-            {" "}({f==="all"?models.length:f==="active"?models.filter(m=>m.deployed||m.status==="fallback_active").length:models.filter(m=>!m.deployed&&m.status!=="running").length})
+      {/* ── Caméra ── */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-bold text-slate-300">📷 CAMÉRA DE TEST</h2>
+        <div className="relative aspect-video rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
+          <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover"/>
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none"/>
+          {streaming && (
+            <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500"/>
+              <span className="text-xs text-white">LIVE · {facing==="environment"?"📷 Arrière":"🤳 Avant"}</span>
+            </div>
+          )}
+          {totalDets>0 && (
+            <div className="absolute top-3 right-3 rounded-lg bg-black/70 px-2.5 py-1.5 text-xs space-y-0.5">
+              <p className="text-white font-bold">{totalDets} détection(s)</p>
+              {criticalDets>0 && <p className="text-red-400">{criticalDets} critique(s)</p>}
+            </div>
+          )}
+          {!streaming && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <p className="text-slate-500 text-sm">Caméra inactive</p>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {!streaming
+            ? <button onClick={()=>startCam()} className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-bold text-white">▶ Démarrer la caméra</button>
+            : <button onClick={stopCam} className="flex items-center justify-center gap-2 rounded-xl border border-red-700 bg-red-900/20 py-3 text-sm font-bold text-red-400">⏹ Arrêter</button>
+          }
+          <button onClick={toggleFacing} className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800 py-3 text-sm font-bold text-white">
+            {facing==="environment"?"🤳 Vue avant":"📷 Vue arrière"}
           </button>
+          <button onClick={testAll} disabled={!streaming||!enabledCount}
+            className="flex items-center justify-center gap-2 rounded-xl bg-emerald-700 py-3 text-sm font-bold text-white disabled:opacity-40 hover:bg-emerald-600">
+            🔬 Tester ({enabledCount})
+          </button>
+          <button onClick={()=>setAutoRun(!autoRun)} disabled={!streaming||!enabledCount}
+            className={`flex items-center justify-center gap-2 rounded-xl border py-3 text-sm font-bold disabled:opacity-40 transition-colors ${autoRun?"border-amber-500 bg-amber-900/20 text-amber-400":"border-slate-700 bg-slate-800 text-white"}`}>
+            {autoRun?"⏸ Stop Auto":"▶▶ Auto 3s"}
+          </button>
+        </div>
+
+        <div className={`rounded-xl border px-4 py-2.5 text-xs font-mono ${log.startsWith("✅")?"border-emerald-800 bg-emerald-900/10 text-emerald-400":log.startsWith("❌")?"border-red-800 bg-red-900/10 text-red-400":"border-slate-800 bg-slate-900 text-slate-400"}`}>
+          {log}
+        </div>
+      </div>
+
+      {/* ── Module selector ── */}
+      <div className="space-y-2">
+        <h2 className="text-sm font-bold text-slate-300">🧩 MODULE / SECTEUR DE TEST</h2>
+        <div className="flex flex-wrap gap-2">
+          {MODULES.map(m=>(
+            <button key={m.id} onClick={()=>setActiveModule(m.id)}
+              className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all ${activeModule===m.id?"border-brand bg-brand/20 text-white":"border-slate-700 bg-slate-800 text-slate-400 hover:text-white"}`}>
+              {m.icon} {m.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500">Module actif: <span className="text-brand">{MODULES.find(m=>m.id===activeModule)?.label}</span> — les détections PPE utilisent ce secteur</p>
+      </div>
+
+      {/* ── Modèles ── */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-300">🤖 MODÈLES IA</h2>
+          <div className="flex gap-2">
+            <button onClick={()=>setModels(p=>p.map(m=>({...m,enabled:true})))} className="text-xs text-slate-500 hover:text-white">Tout ✓</button>
+            <button onClick={()=>setModels(p=>p.map(m=>({...m,enabled:false})))} className="text-xs text-slate-500 hover:text-white">Tout ✗</button>
+          </div>
+        </div>
+
+        {models.map(model=>(
+          <div key={model.id} className={`rounded-xl border transition-all ${model.enabled?"border-brand/40 bg-brand/5":"border-slate-800 bg-slate-900"}`}>
+            {/* Header modèle */}
+            <div className="flex items-center gap-3 p-3">
+              <input type="checkbox" checked={model.enabled}
+                onChange={e=>setModels(p=>p.map(m=>m.id===model.id?{...m,enabled:e.target.checked}:m))}
+                className="h-4 w-4 rounded accent-brand"/>
+              <span className="text-lg shrink-0">{model.icon}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white">{model.name}</p>
+                {model.latency && <p className="text-xs text-slate-500">{model.latency}ms · {model.results.length} détection(s)</p>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {model.status==="loading" && <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand border-t-transparent"/>}
+                {model.status==="ok" && <span className="rounded-full bg-emerald-900 px-2 py-0.5 text-xs font-bold text-emerald-400">✅ {model.results.length}</span>}
+                {model.status==="error" && <span className="rounded-full bg-red-900 px-2 py-0.5 text-xs font-bold text-red-400">❌</span>}
+                <button onClick={()=>testModel(model.id)} disabled={!streaming||model.status==="loading"}
+                  className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-white hover:border-brand disabled:opacity-40">
+                  Test
+                </button>
+              </div>
+            </div>
+
+            {/* Résultats modèle */}
+            {model.status==="error" && (
+              <div className="border-t border-slate-800 px-4 py-2 text-xs text-red-400">❌ {model.error}</div>
+            )}
+            {model.results.length>0 && (
+              <div className="border-t border-slate-800 p-3 space-y-1.5">
+                {model.results.map((det,i)=>(
+                  <div key={i} className="flex items-center gap-2.5 rounded-lg bg-slate-950 px-3 py-2">
+                    <span className="text-lg shrink-0">{det.icon||"📦"}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-white truncate">{det.label}</p>
+                      <p className="text-xs font-mono" style={{color:SEV_COLOR(det.severity)}}>{det.class} · {Math.round(det.score*100)}%</p>
+                    </div>
+                    <div className="h-1.5 w-16 rounded-full bg-slate-800 overflow-hidden shrink-0">
+                      <div className="h-full rounded-full" style={{width:`${det.score*100}%`,background:det.color||SEV_COLOR(det.severity)}}/>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         ))}
       </div>
 
-      {/* Liste des modèles */}
-      <div className="space-y-3">
-        {filtered.map(model=>{
-          const ui = STATUS_STYLE[model.status] ?? STATUS_STYLE.not_deployed;
-          const label = STATUS_LABEL[model.status] ?? model.status;
-          return (
-            <div key={model.id} className={`rounded-xl border overflow-hidden ${ui.card}`}>
-              {/* Header modèle */}
-              <div className="flex items-start gap-3 p-4">
-                <div className="flex items-center gap-2 shrink-0 mt-0.5">
-                  <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${ui.dot}`}/>
-                  <span className="text-2xl">{model.icon}</span>
-                </div>
+      {/* ── Toutes les détections consolidées ── */}
+      {allResults.length>0 && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900 overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+            <h2 className="text-sm font-bold text-slate-300">📊 DÉTECTIONS CONSOLIDÉES ({allResults.length})</h2>
+            <button onClick={()=>{setAllResults([]); resultsRef.current=[];}} className="text-xs text-slate-600 hover:text-red-400">Effacer</button>
+          </div>
+          <div className="divide-y divide-slate-800 max-h-64 overflow-y-auto">
+            {allResults.map((det,i)=>(
+              <div key={i} className={`flex items-center gap-3 px-4 py-2.5 ${det.severity==="critical"?"bg-red-900/10":det.severity==="warning"?"bg-amber-900/10":""}`}>
+                <span className="text-xl shrink-0">{det.icon||"📦"}</span>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                    <h3 className="text-sm font-bold text-white">{model.name}</h3>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ui.badge}`}>{label}</span>
-                    <span className="text-xs text-slate-600">{model.where}</span>
-                  </div>
-
-                  {/* Statut réel */}
-                  <p className={`text-xs font-semibold mb-2 ${
-                    model.real_status?.startsWith("✅") ? "text-emerald-400"
-                    : model.real_status?.startsWith("⚠️") ? "text-amber-400"
-                    : "text-red-400"
-                  }`}>
-                    {model.real_status}
-                  </p>
-
-                  {/* Ce que ça détecte */}
-                  <div className="flex flex-wrap gap-1 mb-2">
-                    {(model.detects ?? []).map((d,i)=>(
-                      <span key={i} className={`rounded-full border px-2 py-0.5 text-xs ${
-                        model.deployed
-                          ? "border-emerald-800/40 bg-emerald-900/20 text-emerald-400"
-                          : model.status==="fallback_active"
-                          ? "border-amber-800/30 bg-amber-900/15 text-amber-400"
-                          : "border-slate-700 bg-slate-800 text-slate-500"
-                      }`}>{d}</span>
-                    ))}
-                  </div>
-
-                  {/* Limitation */}
-                  <p className="text-xs text-amber-400/80 mb-1">⚠️ {model.limitation}</p>
-
-                  {/* Action */}
-                  <p className={`text-xs font-semibold ${model.deployed?"text-emerald-400":"text-brand"}`}>
-                    → {model.action}
-                  </p>
+                  <p className="text-sm font-bold text-white truncate">{det.label}</p>
+                  <p className="text-xs text-slate-500">{det.class} · {Math.round(det.score*100)}%</p>
                 </div>
+                <span className="shrink-0 text-xs font-bold" style={{color:SEV_COLOR(det.severity)}}>
+                  {det.severity==="critical"?"🔴 Critique":det.severity==="warning"?"🟡 Alerte":det.severity==="info"?"🟢 OK":"⚪"}
+                </span>
               </div>
-            </div>
-          );
-        })}
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Railway Logs ── */}
+      <div className="rounded-xl border border-slate-800 bg-black overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+          <h2 className="text-sm font-bold text-slate-400">🛤️ LOGS RAILWAY TEMPS RÉEL</h2>
+          <button onClick={fetchRailway} className="text-xs text-slate-500 hover:text-white">🔄 Refresh</button>
+        </div>
+        <div className="p-3 font-mono text-xs space-y-0.5 max-h-48 overflow-y-auto">
+          {railwayLogs.length===0
+            ? <p className="text-slate-600">Aucun log disponible — lance un entraînement PPE pour voir les logs</p>
+            : railwayLogs.map((l,i)=>(
+              <p key={i} className={l.includes("✅")||l.includes("🎉")?"text-emerald-400":l.includes("❌")?"text-red-400":l.includes("🏋️")||l.includes("Epoch")?"text-amber-300 font-bold":"text-slate-500"}>{l}</p>
+            ))
+          }
+        </div>
       </div>
 
+      {/* ── Status Railway détaillé ── */}
+      {railwayStatus && !railwayStatus.error && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <h2 className="text-xs font-bold text-slate-400 mb-3">⚙️ CONFIGURATION RAILWAY</h2>
+          <div className="space-y-2 text-xs">
+            {[
+              ["Version",     railwayStatus.version||"—"],
+              ["PPE Modèle",  railwayStatus.model_path||"—"],
+              ["Nb classes",  railwayStatus.nc||"—"],
+              ["Mode",        railwayStatus.mode||"—"],
+              ["Fichiers",    (railwayStatus.models_dir||[]).join(", ")||"vide"],
+              ["Roboflow",    railwayStatus.roboflow_key?"✅ Configurée":"❌ Absente"],
+            ].map(([l,v])=>(
+              <div key={l} className="flex justify-between">
+                <span className="text-slate-500">{l}</span>
+                <span className="text-slate-300 truncate max-w-48 text-right">{String(v)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
