@@ -227,7 +227,7 @@ export default function DiagnosticPage() {
       const d=await r.json();
       setFirebase(d.firebase_ok?"ok":"error");
       addLog(`Firebase: ${d.firebase_ok?"✅ OK":"❌ "+d.missing?.join(",")||"error"}`,"ok");
-    }catch(){ setFirebase("error"); }
+    }catch(_e){ setFirebase("error"); }
 
     // Roboflow check
     try{
@@ -235,7 +235,7 @@ export default function DiagnosticPage() {
       const d=await r.json();
       setRoboflow(d.roboflow_key?"ok":"error");
       addLog(`Roboflow: ${d.roboflow_key?"✅ clé OK":"❌ clé manquante"}`,"ok");
-    }catch(){ setRoboflow("error"); }
+    }catch(_e){ setRoboflow("error"); }
   }
 
   useEffect(()=>{fetchStatus(); const iv=setInterval(fetchStatus,20000); return()=>clearInterval(iv);},[]);
