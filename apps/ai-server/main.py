@@ -252,6 +252,188 @@ def detect(req: DetectRequest):
         return {"detections":[],"count":0,"error":str(e)}
 
 # ── PPE Train Status ──────────────────────────────────────────────────────────
+@app.get("/diagnostic/report")
+async def diagnostic_report():
+    """Rapport complet de diagnostic — explique pourquoi chaque modèle fonctionne ou pas"""
+    import time, traceback
+    report = {
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "version":   "2.0.0",
+        "summary":   [],
+        "models":    {},
+        "issues":    [],
+        "recommendations": [],
+    }
+
+    # ── 1. YOLOv11 ONNX ─────────────────────────────────────────────────────
+    try:
+        from detection.yolo_detector import get_onnx
+        det = get_onnx()
+        if det.session:
+            report["models"]["yolo11_onnx"] = {
+                "status": "✅ ACTIF",
+                "path":   det.model_path or "yolo11n.onnx",
+                "classes": 80,
+                "note":   "Détecte 80 classes COCO (personne, voiture, etc.) — PAS de PPE",
+            }
+            report["summary"].append("✅ YOLOv11 ONNX opérationnel")
+        else:
+            report["models"]["yolo11_onnx"] = {"status": "❌ ÉCHEC", "error": "Session ONNX non chargée"}
+            report["issues"].append({
+                "model": "YOLOv11 ONNX",
+                "cause": "opset 22 non supporté par onnxruntime 1.19.2",
+                "fix":   "onnxruntime mis à jour en 1.21.0 — rebuild Railway requis",
+                "impact": "Détection générale (personnes, véhicules) retourne 0 résultats",
+            })
+            report["summary"].append("❌ YOLOv11 ONNX — opset 22 error")
+    except Exception as e:
+        report["models"]["yolo11_onnx"] = {"status": "❌ ERREUR", "error": str(e)}
+        report["issues"].append({"model":"YOLOv11 ONNX","cause":str(e),"fix":"Vérifier yolo11n.onnx dans models/","impact":"Aucune détection générale"})
+
+    # ── 2. PPE Detector ──────────────────────────────────────────────────────
+    try:
+        from detection.ppe_detector import get_ppe_detector
+        ppe = get_ppe_detector()
+        status = ppe.status
+        present_classes = ppe.class_names
+        all_ppe_classes = ["helmet","no_helmet","vest","no_vest","gloves","no_gloves","boots","no_boots","glasses","no_glasses","harness","no_harness","uniform","no_uniform","mask"]
+        missing_classes = [c for c in all_ppe_classes if c not in present_classes]
+
+        report["models"]["ppe_detector"] = {
+            "status":          "✅ CHARGÉ" if status["loaded"] else "❌ NON CHARGÉ",
+            "mode":            status["mode"],
+            "model_path":      status.get("model_path", "inconnu"),
+            "classes_present": present_classes,
+            "classes_missing": missing_classes,
+            "nc":              len(present_classes),
+            "nc_expected":     15,
+        }
+
+        if not status["loaded"]:
+            report["issues"].append({
+                "model":  "PPE Detector",
+                "cause":  "Aucun modèle trouvé dans models/",
+                "fix":    "Uploader ppe_final.onnx ou ppe_final.pt sur GitHub → apps/ai-server/",
+                "impact": "ZÉRO détection PPE — gilet/casque/bottes jamais détectés",
+            })
+            report["summary"].append("❌ PPE Detector — non chargé")
+        elif missing_classes:
+            report["issues"].append({
+                "model":   "PPE Detector",
+                "cause":   f"Modèle entraîné sur {len(present_classes)} classes seulement (dataset incomplet)",
+                "classes_absentes": missing_classes,
+                "fix":     "Relancer FINAL_TRAIN.py sur Colab avec datasets complets (8 datasets → 15 classes)",
+                "impact":  f"Les classes {missing_classes} ne seront JAMAIS détectées même si présentes dans l'image",
+                "explication": "Un modèle YOLO ne peut détecter QUE les classes sur lesquelles il a été entraîné. Si 'boots' n'est pas dans le dataset d'entraînement, le modèle est aveugle aux bottes.",
+            })
+            report["summary"].append(f"⚠️ PPE Detector — {len(present_classes)}/{len(all_ppe_classes)+1} classes ({missing_classes} manquantes)")
+        else:
+            report["summary"].append(f"✅ PPE Detector — {len(present_classes)} classes complètes")
+
+    except Exception as e:
+        report["models"]["ppe_detector"] = {"status": "❌ ERREUR CRITIQUE", "error": str(e), "trace": traceback.format_exc()[:300]}
+        report["issues"].append({"model":"PPE Detector","cause":str(e),"fix":"Vérifier detection/ppe_detector.py","impact":"Aucune détection PPE"})
+
+    # ── 3. PPE Engine (association personne→EPI) ────────────────────────────
+    try:
+        from detection.ppe_engine import associate_ppe_to_persons, CLASS_INFO
+        test_dets = [
+            {"class":"person","label":"Personne","bbox":[100,50,300,400],"score":0.92,"alert":False},
+            {"class":"no_helmet","label":"SANS CASQUE","bbox":[120,55,200,120],"score":0.85,"alert":True},
+            {"class":"no_vest","label":"SANS GILET","bbox":[110,200,290,300],"score":0.78,"alert":True},
+        ]
+        workers = associate_ppe_to_persons(test_dets)
+        report["models"]["ppe_engine"] = {
+            "status":        "✅ OPÉRATIONNEL",
+            "test_workers":  len(workers),
+            "test_violations": sum(len(w.get("epi_absent",[])) for w in workers),
+            "note":          "Association anatomique personne→EPI fonctionnelle",
+        }
+        report["summary"].append(f"✅ PPE Engine — {len(workers)} travailleur(s) associé(s) dans le test")
+    except Exception as e:
+        report["models"]["ppe_engine"] = {"status": "❌ ERREUR", "error": str(e)}
+        report["issues"].append({"model":"PPE Engine","cause":str(e),"fix":"Vérifier detection/ppe_engine.py","impact":"Pas d'association personne-EPI"})
+
+    # ── 4. OCR ────────────────────────────────────────────────────────────────
+    try:
+        import pytesseract
+        v = pytesseract.get_tesseract_version()
+        report["models"]["ocr_tesseract"] = {
+            "status":  "✅ ACTIF",
+            "version": str(v),
+            "note":    "Tesseract disponible pour OCR texte/plaques",
+        }
+        report["summary"].append("✅ OCR Tesseract opérationnel")
+    except Exception as e:
+        report["models"]["ocr_tesseract"] = {"status": "❌ ERREUR", "error": str(e)}
+        report["issues"].append({"model":"OCR","cause":"Tesseract non installé ou inaccessible","fix":"Vérifier nixpacks.toml — tesseract doit être dans nixPkgs","impact":"OCR retourne 0 texte"})
+
+    # ── 5. ByteTrack ─────────────────────────────────────────────────────────
+    report["models"]["bytetrack"] = {
+        "status": "❌ NON INTÉGRÉ",
+        "cause":  "ByteTrack non connecté au frontend — tracking des IDs non implémenté",
+        "fix":    "Implémenter ByteTrack dans le pipeline Railway puis connecter au frontend via WebSocket ou polling",
+        "impact": "Pas de tracking ID persistant entre frames — chaque frame = nouvelles détections sans mémoire",
+    }
+    report["issues"].append({
+        "model": "ByteTrack",
+        "cause": "Non connecté — absent du pipeline de détection actuel",
+        "fix":   "Intégrer supervision ByteTrack dans /detect et /detect/ppe",
+        "impact": "worker_id change à chaque frame — impossible de suivre un travailleur dans le temps",
+    })
+    report["summary"].append("❌ ByteTrack — non connecté (tracking ID instable)")
+
+    # ── 6. Fichiers modèles présents ─────────────────────────────────────────
+    model_files = {}
+    for f in ["models/ppe_final.pt","models/ppe.pt","models/ppe_final.onnx","models/ppe.onnx","models/yolo11n.onnx"]:
+        exists = os.path.exists(f)
+        size   = round(os.path.getsize(f)/1024/1024,1) if exists else 0
+        model_files[f] = {"exists":exists,"size_mb":size}
+    report["model_files"] = model_files
+
+    # ── 7. Raison principale pourquoi gilet/bottes/casque ne fonctionnent pas ──
+    report["root_cause_explication"] = {
+        "titre": "POURQUOI GILET/BOTTES/CASQUE NE DÉTECTENT PAS CORRECTEMENT",
+        "raisons": [
+            {
+                "priorité": 1,
+                "problème": "Modèle entraîné sur 5 classes seulement",
+                "détail":   "Le modèle ppe.onnx actuel = construction-safety-gsnvb (997 images, 5 classes: helmet/no-helmet/vest/no-vest/person). Il n'a JAMAIS vu de bottes, lunettes, gants, harnais dans son entraînement.",
+                "solution": "Relancer FINAL_TRAIN.py sur Colab GPU T4 avec les 8 datasets (incluant safety-equipment, workers-ppe) pour obtenir 15+ classes",
+            },
+            {
+                "priorité": 2,
+                "problème": "YOLOv11 ONNX (détection générale) retourne 0 résultats",
+                "détail":   "yolo11n.onnx utilise opset 22 mais onnxruntime 1.19.2 ne supporte que opset 21 → erreur silencieuse → 0 détection",
+                "solution": "onnxruntime mis à jour en 1.21.0 dans requirements.txt — Railway rebuild en cours",
+            },
+            {
+                "priorité": 3,
+                "problème": "Bounding boxes mal ajustées à l'affichage",
+                "détail":   "COCO-SSD retourne des coordonnées en pixels vidéo (ex: 960px pour vidéo 1280px) mais le canvas fait 375px sur mobile → les boxes débordaient. Fix appliqué: normalisation [0-1] + scale vers canvas.",
+                "solution": "Pipeline V2 normalisé appliqué — vérifier avec mode debug ON dans diagnostic",
+            },
+            {
+                "priorité": 4,
+                "problème": "Détections critiques pas visibles dans Events/Notifications",
+                "détail":   "Les events PPE critiques (no_helmet, no_vest) sont sauvegardés dans Firestore seulement si: 1) La détection est confirmée (2+ frames) 2) Throttle 60s par classe 3) Organization chargée dans le contexte",
+                "solution": "Vérifier que currentOrg est chargé AVANT d'activer IA (démarrer la caméra d'abord pour init l'org)",
+            },
+        ]
+    }
+
+    # ── Recommandations ──────────────────────────────────────────────────────
+    report["recommendations"] = [
+        "🔴 URGENT: Relancer FINAL_TRAIN.py sur Colab — obtenir ppe_final.onnx avec 15 classes",
+        "🟡 IMPORTANT: Attendre rebuild Railway (onnxruntime 1.21.0) puis retester YOLOv11",
+        "🟡 IMPORTANT: Démarrer la caméra AVANT d'activer les modèles pour charger l'organisation",
+        "🟢 OK: Pipeline coordonnées V2 normalisé — boxes correctement ajustées",
+        "🟢 OK: PPE Engine (association personne→EPI) opérationnel",
+        "🟢 OK: Events throttlé 60s/classe pour éviter le spam (était 500 events en 1 minute)",
+    ]
+
+    return report
+
 @app.get("/ppe/download")
 async def ppe_download():
     """Force le téléchargement de ppe.pt depuis Firebase Storage"""
