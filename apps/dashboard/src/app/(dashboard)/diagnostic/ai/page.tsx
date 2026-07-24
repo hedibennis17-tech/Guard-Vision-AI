@@ -224,7 +224,7 @@ export default function DiagnosticPage(){
           return{id:`coco_${i}`,class:p.class,label:p.class,icon:getIcon(p.class),color:getColor(p.class),severity:getSev(p.class),score:p.score,bbox_norm:bn,source:"coco",confirmed:n>=2,frames:n};
         });
       } else if(id==="yolo"){
-        const r=await fetch(`${SERVER}/detect`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame,module_id:sector,confidence:0.45}),signal:AbortSignal.timeout(10000)});
+        const r=await fetch(`${SERVER}/detect`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame,module_id:sector,confidence:0.25}),signal:AbortSignal.timeout(10000)});
         const d=await r.json();
         newDets=(d.detections??[]).map((det:any,i:number)=>{
           const bn=normFromCapture(det.bbox??[]);
@@ -232,7 +232,7 @@ export default function DiagnosticPage(){
           return{id:`yolo_${i}`,class:det.class,label:det.label||det.class,icon:det.icon||getIcon(det.class),color:det.color||getColor(det.class),severity:getSev(det.class),score:det.score,bbox_norm:bn,source:"yolo",confirmed:n>=2,frames:n};
         });
       } else if(id==="ppe"||id==="ppe_engine"){
-        const r=await fetch(`${SERVER}/detect/ppe`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame,sector,confidence:0.35,organization_id:"",camera_id:"diag"}),signal:AbortSignal.timeout(12000)});
+        const r=await fetch(`${SERVER}/detect/ppe`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame,sector,confidence:0.15,organization_id:"",camera_id:"diag"}),signal:AbortSignal.timeout(20000)});
         const d=await r.json();
         newDets=(d.detections??[]).map((det:any,i:number)=>{
           const bn=normFromCapture(det.bbox??[]);
@@ -250,7 +250,7 @@ export default function DiagnosticPage(){
           workersRef.current=workers;
         }
       } else if(id==="ocr"){
-        const r=await fetch(`${SERVER}/ocr/analyze`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame}),signal:AbortSignal.timeout(15000)});
+        const r=await fetch(`${SERVER}/ocr/analyze`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame}),signal:AbortSignal.timeout(25000)});
         const d=await r.json();
         newDets=(d.results??[]).map((o:any,i:number)=>({id:`ocr_${i}`,class:"text",label:o.text||"Texte",icon:"🔤",color:"#10B981",severity:"info" as const,score:o.confidence??0.9,bbox_norm:[0,0,0,0] as [number,number,number,number],source:"ocr",confirmed:true,frames:1}));
       }

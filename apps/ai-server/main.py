@@ -252,6 +252,24 @@ def detect(req: DetectRequest):
         return {"detections":[],"count":0,"error":str(e)}
 
 # ── PPE Train Status ──────────────────────────────────────────────────────────
+@app.get("/test/ppe")
+async def test_ppe():
+    """Test rapide PPE — retourne toutes détections même faibles"""
+    try:
+        from detection.ppe_detector import get_ppe_detector
+        det = get_ppe_detector()
+        return {
+            "loaded":     det.loaded,
+            "mode":       det.mode,
+            "model_path": det.model_path,
+            "classes":    det.class_names,
+            "nc":         len(det.class_names),
+            "models_dir": os.listdir("models") if os.path.exists("models") else [],
+            "tip": "POST /detect/ppe avec confidence=0.10 pour voir toutes les détections",
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/diagnostic/report")
 async def diagnostic_report():
     """Rapport complet de diagnostic — explique pourquoi chaque modèle fonctionne ou pas"""
