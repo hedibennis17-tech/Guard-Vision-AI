@@ -112,18 +112,8 @@ async def startup():
         except Exception as e:
             logger.error(f"❌ Google Drive: {e}")
 
-    # Initialiser le détecteur PPE maintenant
-    try:
-        from detection.ppe_detector import get_ppe_detector
-        det = get_ppe_detector()
-        if det.loaded:
-            logger.success(f"✅ PPE Detector prêt: {det.mode} | {len(det.class_names)} classes | {det.model_path}")
-        else:
-            logger.error("❌ PPE Detector: aucun modèle chargé")
-    except Exception as e:
-        logger.error(f"❌ PPE init: {e}")
-
     logger.info(f"📂 models/: {os.listdir('models') if os.path.exists('models') else []}")
+    logger.success("✅ Serveur prêt — PPE chargé au premier appel /detect/ppe")
     logger.success("✅ Serveur prêt")
 
 async def _download_ppe_from_storage():
