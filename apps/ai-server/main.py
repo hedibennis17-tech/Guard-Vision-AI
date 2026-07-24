@@ -254,7 +254,7 @@ def detect(req: DetectRequest):
 # ── PPE Train Status ──────────────────────────────────────────────────────────
 @app.get("/test/ppe")
 async def test_ppe():
-    """Test rapide PPE — retourne toutes détections même faibles"""
+    """Test rapide PPE — statut + tip"""
     try:
         from detection.ppe_detector import get_ppe_detector
         det = get_ppe_detector()
@@ -265,10 +265,39 @@ async def test_ppe():
             "classes":    det.class_names,
             "nc":         len(det.class_names),
             "models_dir": os.listdir("models") if os.path.exists("models") else [],
-            "tip": "POST /detect/ppe avec confidence=0.10 pour voir toutes les détections",
         }
     except Exception as e:
         return {"error": str(e)}
+
+@app.post("/test/ppe/detect")
+async def test_ppe_detect(req: PPERequest):
+    """Debug PPE — retourne TOUTES les détections avec confidence >= 0.05"""
+    try:
+        from detection.ppe_detector import get_ppe_detector
+        from PIL import Image
+        import numpy as np, io
+        det = get_ppe_detector()
+        if not det.loaded:
+            return {"error": "Modèle non chargé", "mode": det.mode}
+        b64 = req.image
+        if "," in b64: b64 = b64.split(",")[1]
+        img = np.array(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB"))
+        # Retourner toutes les détections avec seuil très bas
+        all_dets = det.detect(img, confidence=0.05)
+        return {
+            "total":        len(all_dets),
+            "detections":   all_dets[:20],
+            "image_size":   list(img.shape),
+            "model":        det.model_path,
+            "mode":         det.mode,
+            "nc":           len(det.class_names),
+            "classes":      det.class_names,
+            "confidence_used": 0.05,
+            "tip": "Si total=0 même à 0.05, le modèle ne reconnaît pas la scène (entraîné sur chantier construction)",
+        }
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "trace": traceback.format_exc()[:500]}
 
 @app.get("/diagnostic/report")
 async def diagnostic_report():
