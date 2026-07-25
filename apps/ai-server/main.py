@@ -112,8 +112,24 @@ async def startup():
         except Exception as e:
             logger.error(f"❌ Google Drive: {e}")
 
+    # Télécharger ppe_final.onnx depuis Google Drive
+    DRIVE_ID = "1QMrXVYET8vqLG8elnkU6x8TQCM16zbTn"  # ppe_final.onnx
+    for fname, drive_id in [("ppe_final.onnx", DRIVE_ID), ("ppe.onnx", DRIVE_ID)]:
+        dest = f"models/{fname}"
+        if not os.path.exists(dest):
+            try:
+                import gdown
+                logger.info(f"📥 Téléchargement {fname} depuis Google Drive...")
+                gdown.download(f"https://drive.google.com/uc?id={drive_id}", dest, quiet=False, fuzzy=True)
+                if os.path.exists(dest):
+                    size = os.path.getsize(dest)/1024/1024
+                    logger.success(f"✅ {dest} ({size:.1f}MB)")
+                    break
+            except Exception as e:
+                logger.error(f"❌ {fname}: {e}")
+
     logger.info(f"📂 models/: {os.listdir('models') if os.path.exists('models') else []}")
-    logger.success("✅ Serveur prêt — PPE chargé au premier appel /detect/ppe")
+    logger.success("✅ Serveur prêt")
     logger.success("✅ Serveur prêt")
 
 async def _download_ppe_from_storage():
