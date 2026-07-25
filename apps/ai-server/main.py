@@ -2,10 +2,8 @@
 Vision Guard AI Server v2.0
 FastAPI + ONNX + Firebase + PPE Training + OCR
 """
-print(">>> PYTHON STARTED", flush=True)
 # CRITIQUE: env vars headless AVANT tout import (cv2/ultralytics chargent libGL à l'import)
 import os
-print(">>> os imported", flush=True)
 os.environ["QT_QPA_PLATFORM"]   = "offscreen"
 os.environ["MPLBACKEND"]         = "Agg"
 os.environ["DISPLAY"]            = ""
@@ -16,9 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-print(">>> loguru importing", flush=True)
 from loguru import logger
-print(">>> FastAPI importing", flush=True)
 app = FastAPI(title="Vision Guard AI", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -787,8 +783,7 @@ def ocr_status():
         return {"loaded":False,"error":str(e)}
 
 # ── PPE detect ────────────────────────────────────────────────────────────────
-class PPERequest(BaseModel):
-    image:str; sector:str="general"; organization_id:str=""; camera_id:str=""; confidence:float=0.45
+
 
 @app.post("/detect/ppe")
 def detect_ppe(req: PPERequest):
