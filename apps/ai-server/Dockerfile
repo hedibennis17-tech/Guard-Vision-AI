@@ -18,5 +18,7 @@ RUN mkdir -p models logs
 ENV QT_QPA_PLATFORM=offscreen
 ENV MPLBACKEND=Agg
 ENV DISPLAY=""
+ENV PORT=8000
 
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# IMPORTANT: exec form + shell pour que $PORT de Railway soit utilisé
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT}"]
