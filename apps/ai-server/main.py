@@ -81,55 +81,17 @@ def get_db():
 @app.on_event("startup")
 async def startup():
     logger.info("🚀 Vision Guard AI Server v2.0 démarrage...")
-    get_db()
-    # Copier TOUS les modèles PPE vers models/ (priorité ppe_final.pt)
-    import shutil
+    # Startup minimal — modèles chargés à la première requête
     os.makedirs("models", exist_ok=True)
-    MODEL_FILES = [
-        "ppe_final.pt", "ppe_final.onnx",
-        "ppe.pt",       "ppe.onnx",
-    ]
-    for fname in MODEL_FILES:
-        dest = f"models/{fname}"
-        if os.path.exists(dest):
-            continue
-        for src in [fname, f"/app/{fname}"]:
-            if os.path.exists(src):
-                shutil.copy2(src, dest)
-                size = os.path.getsize(dest)/1024/1024
-                logger.success(f"✅ {dest} copié ({size:.1f}MB)")
-                break
-
-    # Télécharger ppe_final.onnx depuis Google Drive si toujours absent
-    if not any(os.path.exists(f"models/{f}") for f in ["ppe_final.onnx","ppe.onnx"]):
-        try:
-            import subprocess, sys
-            subprocess.run([sys.executable,"-m","pip","install","gdown","-q"], capture_output=True)
-            import gdown
-            logger.info("📥 Téléchargement ppe.onnx depuis Google Drive...")
-            gdown.download("https://drive.google.com/uc?id=1QMrXVYET8vqLG8elnkU6x8TQCM16zbTn",
-                          "models/ppe.onnx", quiet=False, fuzzy=True)
-        except Exception as e:
-            logger.error(f"❌ Google Drive: {e}")
-
-    # Télécharger ppe_final.onnx depuis Google Drive
-    DRIVE_ID = "1QMrXVYET8vqLG8elnkU6x8TQCM16zbTn"  # ppe_final.onnx
-    for fname, drive_id in [("ppe_final.onnx", DRIVE_ID), ("ppe.onnx", DRIVE_ID)]:
-        dest = f"models/{fname}"
-        if not os.path.exists(dest):
-            try:
-                import gdown
-                logger.info(f"📥 Téléchargement {fname} depuis Google Drive...")
-                gdown.download(f"https://drive.google.com/uc?id={drive_id}", dest, quiet=False, fuzzy=True)
-                if os.path.exists(dest):
-                    size = os.path.getsize(dest)/1024/1024
-                    logger.success(f"✅ {dest} ({size:.1f}MB)")
-                    break
-            except Exception as e:
-                logger.error(f"❌ {fname}: {e}")
-
-    logger.info(f"📂 models/: {os.listdir('models') if os.path.exists('models') else []}")
-    logger.success("✅ Serveur prêt")
+    # Copier modèles depuis le repo si présents
+    import shutil
+    for fname in ["ppe_final.pt","ppe_final.onnx","ppe.pt","ppe.onnx"]:
+        src = fname
+        dst = f"models/{fname}"
+        if os.path.exists(src) and not os.path.exists(dst):
+            shutil.copy2(src, dst)
+            logger.info(f"✅ {dst} copié ({os.path.getsize(dst)//1024//1024}MB)")
+    logger.success(f"✅ Serveur prêt | models/: {os.listdir('models')}")
     logger.success("✅ Serveur prêt")
 
 async def _download_ppe_from_storage():
