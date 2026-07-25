@@ -174,6 +174,13 @@ class DetectRequest(BaseModel):
     confidence:      float = 0.45
     save_to_firebase:bool  = False
 
+class PPERequest(BaseModel):
+    image:           str = ""
+    organization_id: str = ""
+    camera_id:       str = ""
+    sector:          str = "construction"
+    confidence:      float = 0.40
+
 @app.post("/detect")
 @app.post("/pipeline/run")
 def detect(req: DetectRequest):
