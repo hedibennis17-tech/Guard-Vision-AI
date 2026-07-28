@@ -84,7 +84,7 @@ async def startup():
     os.makedirs("models", exist_ok=True)
     # Copier modèles depuis le repo si présents
     import shutil
-    for fname in ["ppe_final.pt","ppe_final.onnx","ppe.pt","ppe.onnx"]:
+    for fname in ["voxdroid_ppe.onnx","ppe_final.onnx","ppe_final.pt","ppe.pt","ppe.onnx"]:
         src = fname
         dst = f"models/{fname}"
         if os.path.exists(src) and not os.path.exists(dst):

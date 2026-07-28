@@ -16,6 +16,18 @@ FINAL_CLASSES = [
 ]
 
 CLASS_INFO = {
+    # Classes VoxDroid YOLOv8s (200 epochs, 95% précision)
+    "Hardhat":      {"label":"Casque ✅",         "severity":"info",    "alert":False, "icon":"⛑️",  "color":"#10B981"},
+    "NO-Hardhat":   {"label":"SANS CASQUE 🚨",    "severity":"critical","alert":True,  "icon":"🚫",  "color":"#EF4444"},
+    "Safety Vest":  {"label":"Gilet ✅",           "severity":"info",    "alert":False, "icon":"🦺",  "color":"#10B981"},
+    "NO-Safety Vest":{"label":"SANS GILET 🚨",    "severity":"critical","alert":True,  "icon":"🚫",  "color":"#EF4444"},
+    "Mask":         {"label":"Masque ✅",          "severity":"info",    "alert":False, "icon":"😷",  "color":"#10B981"},
+    "NO-Mask":      {"label":"SANS MASQUE ⚠️",   "severity":"warning", "alert":True,  "icon":"⚠️", "color":"#F59E0B"},
+    "Person":       {"label":"Travailleur 👷",     "severity":"info",    "alert":False, "icon":"👷",  "color":"#3B82F6"},
+    "Safety Cone":  {"label":"Cône sécurité",      "severity":"info",    "alert":False, "icon":"🔶",  "color":"#F59E0B"},
+    "machinery":    {"label":"Machinerie ⚠️",     "severity":"warning", "alert":True,  "icon":"🚧",  "color":"#F59E0B"},
+    "vehicle":      {"label":"Véhicule ⚠️",       "severity":"warning", "alert":True,  "icon":"🚛",  "color":"#F59E0B"},
+    # Classes originales en fallback
     "helmet":   {"label":"Casque ✅",          "severity":"info",    "alert":False, "icon":"⛑️",  "color":"#10B981"},
     "no_helmet":{"label":"SANS CASQUE 🚨",     "severity":"critical","alert":True,  "icon":"🚫",  "color":"#EF4444"},
     "no-helmet":{"label":"SANS CASQUE 🚨",     "severity":"critical","alert":True,  "icon":"🚫",  "color":"#EF4444"},
@@ -38,16 +50,14 @@ CLASS_INFO = {
 
 # Priorité de chargement des modèles
 MODEL_PRIORITY = [
-    # PyTorch en premier (plus de classes)
+    # VoxDroid YOLOv8s - 200 epochs - 95% précision - priorité absolue
+    ("onnx", "models/voxdroid_ppe.onnx"),
+    ("onnx", "/app/voxdroid_ppe.onnx"),
+    # Nos modèles en fallback
+    ("onnx", "models/ppe_final.onnx"),
     ("pt",   "models/ppe_final.pt"),
     ("pt",   "models/ppe.pt"),
-    ("pt",   "/app/ppe_final.pt"),
-    ("pt",   "/app/ppe.pt"),
-    # ONNX en fallback
-    ("onnx", "models/ppe_final.onnx"),
     ("onnx", "models/ppe.onnx"),
-    ("onnx", "/app/ppe_final.onnx"),
-    ("onnx", "/app/ppe.onnx"),
 ]
 
 class PPEDetector:

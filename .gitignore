@@ -55,3 +55,4 @@ ai-engine/.env
 
 # Exception PPE model
 !apps/ai-server/ppe_final.onnx
+!apps/ai-server/voxdroid_ppe.onnx
