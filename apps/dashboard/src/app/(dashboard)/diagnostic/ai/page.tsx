@@ -298,7 +298,12 @@ export default function DiagnosticPage(){
       for(const k of framesMap.keys()) if(!active.has(k)) framesMap.delete(k);
 
       detsRef.current=[...detsRef.current.filter(d=>d.source!==id),...after];
-      after.filter(d=>d.severity==="critical"&&d.confirmed).forEach(d=>saveEvent(d));
+      // Sauvegarder toutes violations no_* immédiatement
+      after.forEach(d=>{
+        if(d.class.startsWith("no_")||d.class.startsWith("no-")||d.severity==="critical"){
+          saveEvent({...d, severity:"critical", alert:true, confirmed:true});
+        }
+      });
 
       setModels(p=>p.map(m=>m.id===id?{...m,status:"ok",dets:after,workers,ms:Date.now()-t0}:m));
       log(`${id}: ${after.length} det (NMS ${newDets.length}→${after.length}) ${workers.length?`· ${workers.length}👷`:""}  ${Date.now()-t0}ms`,"ok");
