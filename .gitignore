@@ -52,3 +52,6 @@ ai-engine/.env
 # Docker
 .env
 .env*
+
+# Exception PPE model
+!apps/ai-server/ppe_final.onnx
