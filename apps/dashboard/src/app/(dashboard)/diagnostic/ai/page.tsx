@@ -78,7 +78,7 @@ type ModelState = {id:string;name:string;icon:string;color:string;active:boolean
 const MODELS:ModelState[]=[
   {id:"coco",       name:"COCO-SSD",           icon:"🌐",color:"#3B82F6",active:false,status:"idle",dets:[],workers:[]},
   {id:"yolo",       name:"YOLOv11 ONNX",        icon:"⚡",color:"#8B5CF6",active:false,status:"idle",dets:[],workers:[]},
-  {id:"ppe",        name:"PPE Détecteur",        icon:"⛑️",color:"#F59E0B",active:false,status:"idle",dets:[],workers:[]},
+  {id:"ppe",        name:"VoxDroid YOLOv8s ⭐",  icon:"⛑️",color:"#F59E0B",active:false,status:"idle",dets:[],workers:[]},
   {id:"ppe_engine", name:"PPE Engine + Workers", icon:"👷",color:"#EF4444",active:false,status:"idle",dets:[],workers:[]},
   {id:"ocr",        name:"OCR Tesseract",        icon:"🔤",color:"#10B981",active:false,status:"idle",dets:[],workers:[]},
 ];
