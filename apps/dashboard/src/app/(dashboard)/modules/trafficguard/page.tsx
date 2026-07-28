@@ -12,6 +12,7 @@ export default function TrafficGuardPage() {
   const videoRef  = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream|null>(null);
+  const wakeLockRef = useRef<any>(null);
   const rafRef    = useRef<number>(0);
   const ivRef     = useRef<NodeJS.Timeout|null>(null);
   const detsRef   = useRef<any[]>([]);
@@ -123,15 +124,33 @@ export default function TrafficGuardPage() {
       catch{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:face},audio:false});}
       streamRef.current=s;
       if(videoRef.current){videoRef.current.srcObject=s;await videoRef.current.play().catch(()=>{});}
+      // Auto-redémarrage si le track vidéo meurt (écran verrouillé, app en arrière-plan)
+      const track=s.getVideoTracks()[0];
+      track?.addEventListener("ended",()=>{setLog("⚠️ Flux caméra coupé — redémarrage...");startCam(face);});
+      // Wake Lock: empêche l'écran de se verrouiller pendant que l'IA tourne (sinon le flux devient noir)
+      try{wakeLockRef.current=await (navigator as any).wakeLock?.request("screen");}catch{}
       setStreaming(true);setFacing(face);setLog("✅ Caméra active");
     }catch(e:any){setLog(`❌ ${e.message}`);}
   }
   function stopCam(){
     streamRef.current?.getTracks().forEach(t=>t.stop());
     if(videoRef.current) videoRef.current.srcObject=null;
+    wakeLockRef.current?.release().catch(()=>{});wakeLockRef.current=null;
     setStreaming(false);setAiOn(false);detsRef.current=[];setLog("Arrêtée");
   }
-  useEffect(()=>()=>{streamRef.current?.getTracks().forEach(t=>t.stop());cancelAnimationFrame(rafRef.current);if(ivRef.current) clearInterval(ivRef.current);},[]);
+  useEffect(()=>{
+    // Ré-acquiert le wake lock quand l'onglet redevient visible (il est relâché automatiquement en arrière-plan)
+    function onVisible(){
+      if(document.visibilityState==="visible"&&streaming){
+        (navigator as any).wakeLock?.request("screen").then((wl:any)=>wakeLockRef.current=wl).catch(()=>{});
+        const track=streamRef.current?.getVideoTracks()[0];
+        if(!track||track.readyState==="ended"){startCam(facing);}
+      }
+    }
+    document.addEventListener("visibilitychange",onVisible);
+    return()=>document.removeEventListener("visibilitychange",onVisible);
+  },[streaming,facing]);
+  useEffect(()=>()=>{streamRef.current?.getTracks().forEach(t=>t.stop());wakeLockRef.current?.release().catch(()=>{});cancelAnimationFrame(rafRef.current);if(ivRef.current) clearInterval(ivRef.current);},[]);
 
   const totalVehicles=result?.vehicle_count?Object.values(result.vehicle_count as Record<string,number>).reduce((a,b)=>a+b,0):0;
 
