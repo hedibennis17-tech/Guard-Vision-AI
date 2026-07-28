@@ -139,7 +139,9 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
     const frame = captureFrame();
     if (!frame) return;
     try {
-      const endpoint = PPE_MODULES.has(config.id) ? "/detect/ppe" : "/detect";
+      const endpoint = PPE_MODULES.has(config.id) ? "/detect/ppe" 
+        : config.id === "transportation" ? "/detect/traffic"
+        : "/detect";
       const r = await fetch(`${SERVER}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -157,7 +159,17 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
       const data = await r.json();
       setRailwayOk(true);
 
-      if (PPE_MODULES.has(config.id) && data.workers) {
+      if (config.id === "transportation" && data.vehicle_count) {
+        const counts = data.vehicle_count as Record<string,number>;
+        const total = Object.values(counts).reduce((a,b)=>a+b,0);
+        const dets2 = data.detections ?? [];
+        if (dets2.length) {
+          const time = new Date().toLocaleTimeString("fr-CA");
+          setLiveDets(prev => [...dets2.map((d:any)=>({label:d.label||d.class,icon:d.icon||"🚗",severity:d.severity||"info",time,score:d.score||0.9})),...prev].slice(0,60));
+          setLog(`🚗 ${Object.entries(counts).map(([k,v])=>`${v} ${k}`).join(" · ")} · ${data.traffic_density||""}`);
+        }
+        setPpeDets(data.detections ?? []);
+      } else if (PPE_MODULES.has(config.id) && data.workers) {
         setPpeWorkers(data.workers ?? []);
         setPpeDets(data.detections ?? []);
         const time = new Date().toLocaleTimeString("fr-CA");
