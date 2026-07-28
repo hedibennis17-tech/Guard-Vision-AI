@@ -70,7 +70,7 @@ export default function TrafficGuardPage() {
   const runDetection=useCallback(async()=>{
     const frame=capture(); if(!frame||!SERVER) return;
     try{
-      const r=await fetch(`${SERVER}/detect/traffic`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame,confidence:0.40}),signal:AbortSignal.timeout(12000)});
+      const r=await fetch(`${SERVER}/detect/traffic`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:frame,confidence:0.20}),signal:AbortSignal.timeout(12000)});
       const data=await r.json();
       detsRef.current=data.detections||[];
       setResult(data);

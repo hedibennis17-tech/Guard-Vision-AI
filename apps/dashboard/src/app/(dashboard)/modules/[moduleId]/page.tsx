@@ -1,9 +1,17 @@
 "use client";
 import { ALL_MODULE_CONFIGS } from "@/lib/orchestrator/allModuleConfigs";
 import { UniversalModulePage } from "@/components/UniversalModulePage";
+import TrafficGuardPage from "../trafficguard/page";
 import Link from "next/link";
 
+const TRAFFIC_MODULES = new Set(["transportation","trafficguard","traffic"]);
+
 export default function ModulePage({ params }: { params: { moduleId: string } }) {
+  // TrafficGuard = module dédié avec détection véhicules + plaques
+  if (TRAFFIC_MODULES.has(params.moduleId)) {
+    return <TrafficGuardPage />;
+  }
+
   const config = ALL_MODULE_CONFIGS[params.moduleId];
   if (!config) {
     return (

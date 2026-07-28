@@ -61,7 +61,7 @@ class TrafficDetector:
         blob = np.array(pad,dtype=np.float32)/255.0
         return np.transpose(blob,(2,0,1))[np.newaxis], scale, w, h
 
-    def detect_vehicles(self, img: np.ndarray, conf=0.40) -> List[Dict]:
+    def detect_vehicles(self, img: np.ndarray, conf=0.20) -> List[Dict]:
         if not self.vehicle_session: return []
         blob, scale, w, h = self._preprocess(img)
         inp = self.vehicle_session.get_inputs()[0].name
@@ -131,7 +131,7 @@ class TrafficDetector:
         except Exception:
             return ""
 
-    def analyze(self, img: np.ndarray, conf_vehicle=0.40, conf_plate=0.30) -> Dict:
+    def analyze(self, img: np.ndarray, conf_vehicle=0.20, conf_plate=0.30) -> Dict:
         vehicles = self.detect_vehicles(img, conf_vehicle)
         # Compter par type
         counts = defaultdict(int)
