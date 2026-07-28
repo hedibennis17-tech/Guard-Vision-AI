@@ -130,17 +130,46 @@ export default function DiagnosticPage(){
     lastEvRef.current[det.class]=now;
     const id=`diag_${det.class}_${now}`;
     const label = det.label || det.class;
+    const isCritical = det.class.startsWith("no_");
+    const severity = isCritical ? "critical" : det.severity;
+    const now = new Date();
+    const cameraId = "diagnostic-" + sector;
+
+    // Capturer snapshot depuis la caméra
+    let thumbnailUrl: string|null = null;
+    try {
+      const v = videoRef.current;
+      if (v && v.videoWidth) {
+        const c = document.createElement("canvas");
+        c.width = 320; c.height = 240;
+        c.getContext("2d")?.drawImage(v,0,0,320,240);
+        thumbnailUrl = c.toDataURL("image/jpeg",0.7);
+      }
+    } catch(_e) {}
+
     setDoc(doc(db,"organizations",currentOrg.id,"events",id),{
-      id,organizationId:currentOrg.id,cameraId:"diagnostic",
-      primaryType:det.class,
-      label: det.class.startsWith("no_") ? `🚨 ${label}` : label,
-      category:"ppe",
-      severity: det.class.startsWith("no_") ? "critical" : det.severity,
-      score:det.score,acknowledged:false,
-      clipStatus:"none",durationSeconds:0,thumbnailUrl:null,videoClipUrl:null,
-      createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),
-      source:"diagnostic",
-      module:"construction",
+      id,
+      organizationId: currentOrg.id,
+      cameraId,
+      siteId: sector,
+      primaryType: det.class,
+      label: isCritical ? `🚨 ${label}` : `✅ ${label}`,
+      category: "ppe",
+      severity,
+      score: det.score,
+      confidence: Math.round(det.score*100),
+      acknowledged: false,
+      clipStatus: "none",
+      durationSeconds: 0,
+      thumbnailUrl,
+      videoClipUrl: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      source: "diagnostic",
+      module: "construction",
+      sector,
+      detectedClass: det.class,
+      icon: det.icon,
     }).catch(()=>{});
   }
 
