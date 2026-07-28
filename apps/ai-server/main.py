@@ -283,24 +283,55 @@ def traffic_status():
     except Exception as e:
         return {"loaded": False, "error": str(e)}
 
+_traffic_last = {"ts": None, "frame_shape": None, "frame_mean": None, "raw_boxes": 0, "vehicle_count": {}, "plates": 0, "conf_used": None, "error": None}
+
 @app.post("/detect/traffic")
 async def detect_traffic(req: PPERequest):
+    import time
     try:
         from detection.traffic_detector import get_traffic_detector
         from PIL import Image
         import numpy as np, io
         det = get_traffic_detector()
         if not det.loaded:
+            _traffic_last.update(ts=time.strftime("%H:%M:%S"), error="Traffic detector non chargé")
             return {"error": "Traffic detector non chargé", "detections": [], "vehicle_count": {}}
         b64 = req.image
         if "," in b64: b64 = b64.split(",")[1]
         img = np.array(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB"))
+        conf = req.confidence or 0.40
         logger.info(f"📷 Frame reçue: shape={img.shape}, mean={img.mean():.1f}")
-        result = det.analyze(img, conf_vehicle=req.confidence or 0.40)
+        result = det.analyze(img, conf_vehicle=conf)
+        vc = result.get("vehicle_count", {}) if isinstance(result, dict) else {}
+        _traffic_last.update(
+            ts=time.strftime("%H:%M:%S"),
+            frame_shape=list(img.shape), frame_mean=round(float(img.mean()),1),
+            vehicle_count=vc, plates=len(result.get("plates", [])) if isinstance(result, dict) else 0,
+            conf_used=conf, error=None,
+        )
         return result
     except Exception as e:
         import traceback
+        _traffic_last.update(ts=time.strftime("%H:%M:%S"), error=str(e))
         return {"error": str(e), "trace": traceback.format_exc()[:300], "detections": []}
+
+@app.get("/detect/traffic/diagnostic")
+def traffic_diagnostic():
+    """Ouvre cette URL direct dans le navigateur — état réel du dernier appel /detect/traffic, sans passer par les logs Railway."""
+    from detection.traffic_detector import get_traffic_detector
+    det = get_traffic_detector()
+    out = {"model_loaded": det.loaded, "model_status": det.status, "last_call": _traffic_last}
+    if _traffic_last["ts"] is None:
+        out["diagnostic"] = "❌ Aucun appel /detect/traffic reçu depuis le dernier redémarrage du serveur — vérifie que 'IA ON' envoie bien vers cette URL."
+    elif _traffic_last["error"]:
+        out["diagnostic"] = f"❌ Erreur au dernier appel : {_traffic_last['error']}"
+    elif _traffic_last["frame_mean"] == 0.0:
+        out["diagnostic"] = "❌ Frame reçue 100% noire (mean=0.0) — le flux caméra du téléphone est mort à ce moment-là."
+    elif sum(_traffic_last["vehicle_count"].values() or [0]) == 0:
+        out["diagnostic"] = "⚠️ Frame normale reçue mais 0 véhicule détecté — problème de seuil de confiance ou d'angle/qualité d'image."
+    else:
+        out["diagnostic"] = "✅ Détection fonctionnelle."
+    return out
 
 @app.get("/diagnostic/report")
 async def diagnostic_report():
