@@ -84,7 +84,7 @@ async def startup():
     os.makedirs("models", exist_ok=True)
     # Copier modèles depuis le repo si présents
     import shutil
-    for fname in ["voxdroid_ppe.onnx","ppe_final.onnx","ppe_final.pt","ppe.pt","ppe.onnx"]:
+    for fname in ["voxdroid_ppe.onnx","ppe_final.onnx","ppe_final.pt","ppe.pt","ppe.onnx","vehicle_detector.onnx","license_plate_detector.onnx"]:
         src = fname
         dst = f"models/{fname}"
         if os.path.exists(src) and not os.path.exists(dst):
@@ -272,6 +272,34 @@ async def test_ppe_detect(req: PPERequest):
     except Exception as e:
         import traceback
         return {"error": str(e), "trace": traceback.format_exc()[:500]}
+
+# ── TrafficGuard endpoints ────────────────────────────────────────────────────
+@app.get("/detect/traffic/status")
+def traffic_status():
+    try:
+        from detection.traffic_detector import get_traffic_detector
+        d = get_traffic_detector()
+        return d.status
+    except Exception as e:
+        return {"loaded": False, "error": str(e)}
+
+@app.post("/detect/traffic")
+async def detect_traffic(req: PPERequest):
+    try:
+        from detection.traffic_detector import get_traffic_detector
+        from PIL import Image
+        import numpy as np, io
+        det = get_traffic_detector()
+        if not det.loaded:
+            return {"error": "Traffic detector non chargé", "detections": [], "vehicle_count": {}}
+        b64 = req.image
+        if "," in b64: b64 = b64.split(",")[1]
+        img = np.array(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB"))
+        result = det.analyze(img, conf_vehicle=req.confidence or 0.40)
+        return result
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "trace": traceback.format_exc()[:300], "detections": []}
 
 @app.get("/diagnostic/report")
 async def diagnostic_report():

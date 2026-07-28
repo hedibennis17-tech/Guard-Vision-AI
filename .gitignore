@@ -56,3 +56,5 @@ ai-engine/.env
 # Exception PPE model
 !apps/ai-server/ppe_final.onnx
 !apps/ai-server/voxdroid_ppe.onnx
+!apps/ai-server/vehicle_detector.onnx
+!apps/ai-server/license_plate_detector.onnx
