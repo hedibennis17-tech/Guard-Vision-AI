@@ -82,7 +82,31 @@ class TrafficDetector:
                 "color": VEHICLE_COLORS.get(vtype,"#3B82F6"),
                 "severity": "info", "category": "traffic",
             })
-        return sorted(dets, key=lambda d: d["score"], reverse=True)
+        # NMS — supprime les boîtes empilées sur le même véhicule (le modèle est exporté avec nms=False)
+        dets = sorted(dets, key=lambda d: d["score"], reverse=True)
+        keep = []
+        for d in dets:
+            ax1,ay1,ax2,ay2 = d["bbox"]
+            dup = False
+            for k in keep:
+                bx1,by1,bx2,by2 = k["bbox"]
+                ix1,iy1 = max(ax1,bx1), max(ay1,by1)
+                ix2,iy2 = min(ax2,bx2), min(ay2,by2)
+                iw,ih = max(0,ix2-ix1), max(0,iy2-iy1)
+                inter = iw*ih
+                if inter <= 0: continue
+                union = (ax2-ax1)*(ay2-ay1) + (bx2-bx1)*(by2-by1) - inter
+                if union > 0 and inter/union > 0.45:
+                    dup = True; break
+            if not dup: keep.append(d)
+            if len(keep) >= 30: break
+        # Couleur distincte par véhicule (cadrage multicolore)
+        PALETTE = ["#3B82F6","#22C55E","#EF4444","#F59E0B","#A855F7","#06B6D4","#EC4899","#84CC16","#F97316","#14B8A6"]
+        for i,k in enumerate(keep):
+            k["color"] = PALETTE[i % len(PALETTE)]
+            k["vehicle_id"] = i+1
+            k["label"] = f"#{i+1} {k['class']}"
+        return keep
 
     def detect_plates(self, img: np.ndarray, vehicle_bbox=None, conf=0.30) -> List[Dict]:
         if not self.plate_session: return []
@@ -97,7 +121,7 @@ class TrafficDetector:
         else:
             crop = img
 
-        blob, scale, w, h = self._preprocess(crop, size=320)
+        blob, scale, w, h = self._preprocess(crop, size=640)
         inp = self.plate_session.get_inputs()[0].name
         out = self.plate_session.run(None, {inp: blob})[0][0].T
         plates = []
@@ -136,11 +160,12 @@ class TrafficDetector:
         # Compter par type
         counts = defaultdict(int)
         all_dets = []
-        for v in vehicles:
+        for idx, v in enumerate(vehicles):
             counts[v["class"]] += 1
             self.total_vehicles += 1
             all_dets.append(v)
-            # Détecter plaque sur chaque véhicule
+            # Plaques: uniquement sur les 6 véhicules les plus confiants (OCR = coûteux, sinon timeout)
+            if idx >= 6: continue
             plates = self.detect_plates(img, v["bbox"], conf_plate)
             for p in plates:
                 all_dets.append(p)
