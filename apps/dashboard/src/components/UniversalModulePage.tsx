@@ -327,6 +327,8 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
   useEffect(() => { lastWorkersRef.current = ppeWorkers; }, [ppeWorkers]);
   useEffect(() => { lastDetsRef.current    = ppeDets; },    [ppeDets]);
 
+  const CAPTURE_W2 = 640, CAPTURE_H2 = 480;
+
   useEffect(() => {
     const canvas = ppeCanvasRef.current;
     const video  = videoRef.current;
@@ -338,8 +340,9 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
       canvas!.width  = video.clientWidth  || canvas!.width;
       canvas!.height = video.clientHeight || canvas!.height;
       ctx.clearRect(0, 0, canvas!.width, canvas!.height);
-      const sx = canvas!.width  / (video.videoWidth  || canvas!.width);
-      const sy = canvas!.height / (video.videoHeight || canvas!.height);
+      // Railway retourne des coords en 640x480 — scaler vers canvas
+      const sx = canvas!.width  / CAPTURE_W2;
+      const sy = canvas!.height / CAPTURE_H2;
       const workers = lastWorkersRef.current;
       const dets    = lastDetsRef.current;
 
