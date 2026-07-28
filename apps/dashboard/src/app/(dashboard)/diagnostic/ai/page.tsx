@@ -124,15 +124,23 @@ export default function DiagnosticPage(){
   function saveEvent(det:Det){
     if(!currentOrg?.id) return;
     const now=Date.now();
-    if((now-(lastEvRef.current[det.class]??0))<60000) return;
+    // Throttle 30s pour violations PPE critiques, 60s pour le reste
+    const throttle = det.severity==="critical" ? 30000 : 60000;
+    if((now-(lastEvRef.current[det.class]??0))<throttle) return;
     lastEvRef.current[det.class]=now;
     const id=`diag_${det.class}_${now}`;
+    const label = det.label || det.class;
     setDoc(doc(db,"organizations",currentOrg.id,"events",id),{
       id,organizationId:currentOrg.id,cameraId:"diagnostic",
-      primaryType:det.class,label:det.label,category:"ppe",
-      severity:det.severity,score:det.score,acknowledged:false,
+      primaryType:det.class,
+      label: det.class.startsWith("no_") ? `🚨 ${label}` : label,
+      category:"ppe",
+      severity: det.class.startsWith("no_") ? "critical" : det.severity,
+      score:det.score,acknowledged:false,
       clipStatus:"none",durationSeconds:0,thumbnailUrl:null,videoClipUrl:null,
-      createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),source:"diagnostic",
+      createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),
+      source:"diagnostic",
+      module:"construction",
     }).catch(()=>{});
   }
 
