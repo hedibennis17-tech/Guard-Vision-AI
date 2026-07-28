@@ -295,6 +295,7 @@ async def detect_traffic(req: PPERequest):
         b64 = req.image
         if "," in b64: b64 = b64.split(",")[1]
         img = np.array(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB"))
+        logger.info(f"📷 Frame reçue: shape={img.shape}, mean={img.mean():.1f}")
         result = det.analyze(img, conf_vehicle=req.confidence or 0.40)
         return result
     except Exception as e:
