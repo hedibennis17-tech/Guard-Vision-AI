@@ -165,8 +165,25 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
         const dets2 = data.detections ?? [];
         if (dets2.length) {
           const time = new Date().toLocaleTimeString("fr-CA");
-          setLiveDets(prev => [...dets2.map((d:any)=>({label:d.label||d.class,icon:d.icon||"🚗",severity:d.severity||"info",time,score:d.score||0.9})),...prev].slice(0,60));
-          setLog(`🚗 ${Object.entries(counts).map(([k,v])=>`${v} ${k}`).join(" · ")} · ${data.traffic_density||""}`);
+          setLiveDets(prev => [...dets2.map((d:any)=>({
+            label:d.label||d.class,
+            icon:d.icon||"🚗",
+            severity: d.class==="truck"||d.class==="bus"?"warning":"info",
+            time,score:d.score||0.9
+          })),...prev].slice(0,60));
+          setLog(`🚗 ${total} véhicule(s) · ${data.traffic_density||""} · ${data.plates?.length||0} plaque(s)`);
+          // Sauvegarder notification si beaucoup de véhicules
+          const org = orgRef.current; const cam = camRef.current;
+          if (org && cam && total > 0 && videoRef.current) {
+            const plateEvent = (data.plates||[]).find((p:any)=>p.text);
+            if (plateEvent) {
+              runDetectionPipeline({
+                organizationId:org, cameraId:cam,
+                detection:{ class:"license_plate", label:`🔢 Plaque: ${plateEvent.text}`, severity:"warning", category:"traffic", score:0.9, bbox:[0,0,0,0] },
+                videoElement:videoRef.current,
+              }).catch(()=>{});
+            }
+          }
         }
         setPpeDets(data.detections ?? []);
       } else if (PPE_MODULES.has(config.id) && data.workers) {
@@ -185,6 +202,16 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
                 organizationId:org, cameraId:cam,
                 detection:{ class:"ppe_violation", label:a.label, severity:"critical", category:"ppe", score:0.9, bbox:[0,0,0,0] },
                 videoElement:videoRef.current,
+              }).catch(()=>{});
+              // Créer notification directement
+              const { doc: fDoc, setDoc: fSet, collection: fCol } = await import("firebase/firestore");
+              const { db: fDb } = await import("@/lib/firebase/client");
+              const nId = fDoc(fCol(fDb,"_")).id;
+              fSet(fDoc(fDb,"organizations",org,"notifications",nId),{
+                id:nId, organizationId:org, eventId:"",
+                type:"ppe_violation", title:`🚨 ${a.label}`,
+                body:`Violation EPI critique — Travailleur #${w.worker_id}`,
+                severity:"critical", read:false, createdAt:new Date().toISOString(),
               }).catch(()=>{});
             }
           }
@@ -212,8 +239,9 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
   useEffect(() => {
     if (ppeIntervalRef.current) clearInterval(ppeIntervalRef.current);
     if (aiOn && streaming && SERVER) {
-      runPPE();
-      ppeIntervalRef.current = setInterval(runPPE, 2000);
+      runPPE(); // Premier appel immédiat
+      const interval = config.id === "transportation" ? 2500 : 2000;
+      ppeIntervalRef.current = setInterval(runPPE, interval);
     }
     return () => { if (ppeIntervalRef.current) clearInterval(ppeIntervalRef.current); };
   }, [aiOn, streaming, runPPE]);

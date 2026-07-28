@@ -146,13 +146,31 @@ class TrafficDetector:
     def _ocr_plate(self, plate_img: np.ndarray) -> str:
         try:
             import pytesseract, cv2
-            if plate_img.size == 0: return ""
+            if plate_img.size == 0 or plate_img.shape[0] < 5 or plate_img.shape[1] < 5:
+                return ""
             gray = cv2.cvtColor(plate_img, cv2.COLOR_RGB2GRAY)
-            gray = cv2.resize(gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-            _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-            text = pytesseract.image_to_string(thresh, config="--psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-            return text.strip().replace(" ","").replace("\n","")[:10]
-        except Exception:
+            # Upscale agressif pour OCR
+            h, w = gray.shape
+            scale = max(2.0, 100.0/h, 200.0/w)
+            gray = cv2.resize(gray, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_CUBIC)
+            # Débruitage
+            gray = cv2.GaussianBlur(gray, (3,3), 0)
+            # Binarisation adaptative
+            thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+            # PSM 7 = ligne unique (mieux pour plaques)
+            configs = [
+                "--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+                "--psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+                "--psm 6",
+            ]
+            for cfg in configs:
+                text = pytesseract.image_to_string(thresh, config=cfg).strip()
+                text = "".join(c for c in text if c.isalnum())[:10]
+                if len(text) >= 4:
+                    return text
+            return ""
+        except Exception as e:
+            logger.debug(f"OCR plate: {e}")
             return ""
 
     def analyze(self, img: np.ndarray, conf_vehicle=0.20, conf_plate=0.30) -> Dict:
