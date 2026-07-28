@@ -36,7 +36,7 @@ const CLASS_ICONS: Record<string,string> = {
 function getColor(cls:string){ return CLASS_COLORS[cls]||CLASS_COLORS.default; }
 function getIcon(cls:string){  return CLASS_ICONS[cls]||CLASS_ICONS.default; }
 function getSev(cls:string):"critical"|"warning"|"info"{
-  if(cls.startsWith("no-")||cls.startsWith("no_")) return "critical";
+  if(cls.startsWith("no-")||cls.startsWith("no_")||cls.startsWith("NO-")) return "critical";
   if(cls==="person") return "warning";
   return "info";
 }
@@ -125,7 +125,7 @@ export default function DiagnosticPage(){
     if(!currentOrg?.id) return;
     const now=Date.now();
     // Throttle 30s pour violations PPE critiques, 60s pour le reste
-    const throttle = det.severity==="critical" ? 30000 : 60000;
+    const throttle = det.severity==="critical" ? 10000 : 20000;
     if((now-(lastEvRef.current[det.class]??0))<throttle) return;
     lastEvRef.current[det.class]=now;
     const id=`diag_${det.class}_${now}`;
@@ -300,7 +300,7 @@ export default function DiagnosticPage(){
       detsRef.current=[...detsRef.current.filter(d=>d.source!==id),...after];
       // Sauvegarder toutes violations no_* immédiatement
       after.forEach(d=>{
-        if(d.class.startsWith("no_")||d.class.startsWith("no-")||d.severity==="critical"){
+        if(d.class.startsWith("no_")||d.class.startsWith("no-")||d.class.startsWith("NO-")||d.severity==="critical"){
           saveEvent({...d, severity:"critical" as "critical", confirmed:true});
         }
       });
