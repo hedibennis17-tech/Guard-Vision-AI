@@ -301,7 +301,7 @@ export default function DiagnosticPage(){
       // Sauvegarder toutes violations no_* immédiatement
       after.forEach(d=>{
         if(d.class.startsWith("no_")||d.class.startsWith("no-")||d.severity==="critical"){
-          saveEvent({...d, severity:"critical", alert:true, confirmed:true});
+          saveEvent({...d, severity:"critical" as "critical", confirmed:true});
         }
       });
 
