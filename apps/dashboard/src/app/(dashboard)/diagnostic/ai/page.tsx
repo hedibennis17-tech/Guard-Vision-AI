@@ -132,7 +132,7 @@ export default function DiagnosticPage(){
     const label = det.label || det.class;
     const isCritical = det.class.startsWith("no_");
     const severity = isCritical ? "critical" : det.severity;
-    const now = new Date();
+    const nowDate = new Date();
     const cameraId = "diagnostic-" + sector;
 
     // Capturer snapshot depuis la caméra
@@ -163,8 +163,8 @@ export default function DiagnosticPage(){
       durationSeconds: 0,
       thumbnailUrl,
       videoClipUrl: null,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
+      createdAt: nowDate.toISOString(),
+      updatedAt: nowDate.toISOString(),
       source: "diagnostic",
       module: "construction",
       sector,
