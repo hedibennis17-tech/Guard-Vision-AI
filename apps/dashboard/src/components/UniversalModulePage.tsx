@@ -153,7 +153,7 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
           camera_id: camRef.current ?? "",
           confidence: 0.40,
         }),
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(config.id==="transportation"?15000:8000),
       });
       if (!r.ok) return;
       const data = await r.json();
@@ -388,15 +388,39 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
         }
       }
       if (!workers.length) {
+        const vehicleColors: Record<string,string> = {
+          car:"#3B82F6",truck:"#8B5CF6",bus:"#F59E0B",
+          motorcycle:"#10B981",bicycle:"#06B6D4",person:"#EF4444",
+          license_plate:"#FBBF24",
+        };
+        let vehicleIdx = 0;
         for (const det of dets) {
           if (!det.bbox?.length) continue;
           const [x1,y1,x2,y2] = det.bbox;
-          const color = det.color || (det.alert ? "#EF4444" : "#10B981");
-          ctx.strokeStyle = color; ctx.lineWidth = 2;
+          if (x2-x1 < 5 || y2-y1 < 5) continue;
+          const color = vehicleColors[det.class] || det.color || "#3B82F6";
+          const lw = det.class === "license_plate" ? 2 : 3;
+          ctx.strokeStyle = color; ctx.lineWidth = lw;
           ctx.strokeRect(x1*sx, y1*sy, (x2-x1)*sx, (y2-y1)*sy);
-          ctx.fillStyle = color + "CC"; ctx.fillRect(x1*sx, y1*sy - 18, (x2-x1)*sx, 18);
-          ctx.fillStyle = "#FFF"; ctx.font = "11px sans-serif";
-          ctx.fillText(`${det.icon||""} ${det.label}`, x1*sx + 3, y1*sy - 4);
+          // Label background
+          const label = det.class === "license_plate" 
+            ? `🔢 ${det.text||"Plaque"}` 
+            : `${det.icon||"🚗"} ${det.label} ${Math.round((det.score||0)*100)}%`;
+          const lh = 18;
+          ctx.fillStyle = color + "DD";
+          ctx.fillRect(x1*sx, y1*sy - lh, (x2-x1)*sx, lh);
+          ctx.fillStyle = "#FFF";
+          ctx.font = det.class === "license_plate" ? "bold 10px monospace" : "bold 11px sans-serif";
+          ctx.fillText(label, x1*sx + 3, y1*sy - 4, (x2-x1)*sx - 6);
+          // Numéro du véhicule
+          if (det.class !== "license_plate") {
+            vehicleIdx++;
+            ctx.fillStyle = color;
+            ctx.beginPath(); ctx.arc(x1*sx+10, y1*sy+10, 9, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#FFF"; ctx.font = "bold 10px sans-serif"; ctx.textAlign = "center";
+            ctx.fillText(String(vehicleIdx), x1*sx+10, y1*sy+14);
+            ctx.textAlign = "left";
+          }
         }
       }
       animRef.current = requestAnimationFrame(draw);
@@ -472,7 +496,7 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
                 {aiOn && (
                   <div className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-2.5 py-1.5 text-xs">
                     {railwayOk
-                      ? <span className="text-emerald-400">🚀 {isPPE?"PPE":"YOLOv11"} · {PPE_MODULES.has(config.id)?ppeWorkers.length+" travailleur(s)":liveDets.length+" détection(s)"}</span>
+                      ? <span className="text-emerald-400">🚀 {isPPE?"PPE VoxDroid":config.id==="transportation"?"YOLOv8n Traffic":"YOLOv11"} · {PPE_MODULES.has(config.id)?ppeWorkers.length+" travailleur(s)":ppeDets.length+" détection(s)"}</span>
                       : isLoading ? <span className="text-amber-400">⏳ Chargement IA...</span>
                       : modelReady ? <span className="text-blue-400">🌐 COCO · {visibleDets.length} obj · {fps}fps</span>
                       : <span className="text-slate-500">IA en attente</span>}
