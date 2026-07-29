@@ -203,8 +203,39 @@ class TrafficDetector:
         except Exception:
             return ""
 
+    def _tile_detect(self, img: np.ndarray, conf=0.20) -> List[Dict]:
+        """Multi-échelle: image complète + 4 quadrants pour objets distants (50-100m)"""
+        H, W = img.shape[:2]
+        all_dets: List[Dict] = []
+
+        # 1. Image complète
+        all_dets.extend(self.detect_vehicles(img, conf))
+
+        # 2. Quadrants avec 10% overlap
+        overlap_x, overlap_y = W//10, H//10
+        tiles = [
+            (0,              0,              W//2+overlap_x, H//2+overlap_y),
+            (W//2-overlap_x, 0,              W,              H//2+overlap_y),
+            (0,              H//2-overlap_y, W//2+overlap_x, H),
+            (W//2-overlap_x, H//2-overlap_y,W,              H),
+        ]
+        for (tx1,ty1,tx2,ty2) in tiles:
+            crop = img[ty1:ty2, tx1:tx2]
+            if crop.size == 0: continue
+            for d in self.detect_vehicles(crop, conf):
+                bx1,by1,bx2,by2 = d["bbox"]
+                d["bbox"] = [bx1+tx1, by1+ty1, bx2+tx1, by2+ty1]
+                all_dets.append(d)
+
+        # NMS global
+        if not all_dets: return []
+        boxes  = [d["bbox"] for d in all_dets]
+        scores = [d["score"] for d in all_dets]
+        keep   = self._nms(boxes, scores, iou_thresh=0.40)
+        return [all_dets[i] for i in keep]
+
     def analyze(self, img: np.ndarray, conf_vehicle=0.20, conf_plate=0.15) -> Dict:
-        vehicles = self.detect_vehicles(img, conf_vehicle)
+        vehicles = self._tile_detect(img, conf_vehicle)
         # Plaques sur IMAGE COMPLÈTE
         plates   = self.detect_plates_full(img, conf_plate)
 

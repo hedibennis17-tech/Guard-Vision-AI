@@ -128,8 +128,8 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
     const v = videoRef.current;
     if (!v || !v.videoWidth) return null;
     const c = document.createElement("canvas");
-    c.width  = Math.min(v.videoWidth, 640);
-    c.height = Math.min(v.videoHeight, 480);
+    c.width  = Math.min(v.videoWidth,  config.id === "transportation" ? 1280 : 640);
+    c.height = Math.min(v.videoHeight, config.id === "transportation" ? 720  : 480);
     c.getContext("2d")?.drawImage(v, 0, 0, c.width, c.height);
     return c.toDataURL("image/jpeg", 0.7).split(",")[1];
   }, []);
