@@ -172,14 +172,21 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
             time,score:d.score||0.9
           })),...prev].slice(0,60));
           setLog(`🚗 ${total} véhicule(s) · ${data.traffic_density||""} · ${data.plates?.length||0} plaque(s)`);
-          // Sauvegarder notification si beaucoup de véhicules
+          // Sauvegarder TOUTES les plaques dans Firebase (même sans texte OCR)
           const org = orgRef.current; const cam = camRef.current;
-          if (org && cam && total > 0 && videoRef.current) {
-            const plateEvent = (data.plates||[]).find((p:any)=>p.text);
-            if (plateEvent) {
+          if (org && cam && videoRef.current) {
+            for (const plate of (data.plates||[])) {
+              const plateLabel = plate.text ? `🔢 Plaque lue: ${plate.text} (${plate.vehicle})` : `🔢 Plaque détectée — OCR en cours (${plate.vehicle})`;
               runDetectionPipeline({
                 organizationId:org, cameraId:cam,
-                detection:{ class:"license_plate", label:`🔢 Plaque: ${plateEvent.text}`, severity:"warning", category:"traffic", score:0.9, bbox:[0,0,0,0] },
+                detection:{ 
+                  class:"license_plate", 
+                  label:plateLabel, 
+                  severity:"warning", 
+                  category:"traffic", 
+                  score:plate.score||0.8, 
+                  bbox:plate.bbox||[0,0,0,0] 
+                },
                 videoElement:videoRef.current,
               }).catch(()=>{});
             }
