@@ -112,8 +112,8 @@ class TrafficDetector:
             })
         return dets
 
-    def detect_plates_full(self, img: np.ndarray, conf=0.15) -> List[Dict]:
-        """Détecte plaques sur IMAGE COMPLÈTE (pas de crop par véhicule)"""
+    def detect_plates_full(self, img: np.ndarray, conf=0.50) -> List[Dict]:
+        """Détecte plaques sur IMAGE COMPLÈTE — conf 0.50, filtre aspect ratio"""
         if not self.plate_session: return []
         blob, scale, W, H = self._preprocess(img)
         inp = self.plate_session.get_inputs()[0].name
@@ -133,7 +133,11 @@ class TrafficDetector:
             cx,cy,pw,ph = pred[0],pred[1],pred[2],pred[3]
             x1=max(0,int((cx-pw/2)/scale)); y1=max(0,int((cy-ph/2)/scale))
             x2=min(W,int((cx+pw/2)/scale)); y2=min(H,int((cy+ph/2)/scale))
-            if x2-x1 < 15 or y2-y1 < 8: continue
+            if x2-x1 < 20 or y2-y1 < 8: continue
+            # Filtre aspect ratio: plaque = large > haute (ratio > 1.5)
+            # Une roue est carrée/ronde (ratio ~1), une plaque fait ~4:1
+            aspect = (x2-x1) / max(y2-y1, 1)
+            if aspect < 1.5 or aspect > 7.0: continue
 
             # Crop plaque et OCR
             plate_crop = img[y1:y2, x1:x2]
@@ -254,7 +258,7 @@ class TrafficDetector:
                 "bbox":        p["bbox"],
                 "plate_image": p["plate_image"],
             })
-        self.plates_detected = self.plates_detected[-50:]
+        self.plates_detected = self.plates_detected[-20:]
 
         total = sum(counts.values())
         density = "🔴 Dense" if total>5 else "🟡 Modéré" if total>2 else "🟢 Fluide"

@@ -175,7 +175,11 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
           // Sauvegarder TOUTES les plaques dans Firebase (même sans texte OCR)
           const org = orgRef.current; const cam = camRef.current;
           if (org && cam && videoRef.current) {
-            for (const plate of (data.plates||[])) {
+            const platesSeen = new Set<string>();
+            for (const plate of (data.plates||[]).slice(0,2)) {
+              const plateKey = plate.text || `${plate.bbox?.[0]||0}_${plate.bbox?.[1]||0}`;
+              if (platesSeen.has(plateKey)) continue;
+              platesSeen.add(plateKey);
               const plateLabel = plate.text ? `🔢 Plaque lue: ${plate.text} (${plate.vehicle})` : `🔢 Plaque détectée — OCR en cours (${plate.vehicle})`;
               runDetectionPipeline({
                 organizationId:org, cameraId:cam,
