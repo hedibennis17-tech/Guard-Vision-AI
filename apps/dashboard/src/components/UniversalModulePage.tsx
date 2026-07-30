@@ -374,7 +374,9 @@ export function UniversalModulePage({ config }: { config: ModulePageConfig }) {
   useEffect(() => { lastWorkersRef.current = ppeWorkers; }, [ppeWorkers]);
   useEffect(() => { lastDetsRef.current    = ppeDets; },    [ppeDets]);
 
-  const CAPTURE_W2 = 640, CAPTURE_H2 = 480;
+  // Résolution de capture selon le module
+  const CAPTURE_W2 = config.id === 'transportation' ? 1280 : 640;
+  const CAPTURE_H2 = config.id === 'transportation' ? 720  : 480;
 
   useEffect(() => {
     const canvas = ppeCanvasRef.current;
